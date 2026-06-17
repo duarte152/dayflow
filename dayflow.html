@@ -343,12 +343,19 @@
         </div>
         <div class="body">
             <div class="set-card">
-                <h3>🔑 Chave Gemini API</h3>
-                <p>Para analisar fotos com IA. Grátis em
-                   <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a></p>
-                <div class="row">
-                    <input type="password" id="api-key-input" placeholder="AIzaSy...">
-                    <button class="save-btn" onclick="saveKey()">Salvar</button>
+                <h3>🔑 Chaves Gemini API</h3>
+                <p>Grátis em <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a> — crie quantas quiser. Quando uma esgotar a cota diária, usa a próxima automaticamente.</p>
+                <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+                    <div class="row">
+                        <input type="password" id="api-key-1" placeholder="Chave 1 (AIzaSy...)">
+                    </div>
+                    <div class="row">
+                        <input type="password" id="api-key-2" placeholder="Chave 2 (opcional)">
+                    </div>
+                    <div class="row">
+                        <input type="password" id="api-key-3" placeholder="Chave 3 (opcional)">
+                    </div>
+                    <button class="save-btn" style="align-self:flex-end" onclick="saveKeys()">Salvar</button>
                 </div>
             </div>
             <div class="set-card">
@@ -450,8 +457,10 @@ function getYesterday() {
         return (d.date===YESTERDAY() && Array.isArray(d.items)) ? d.items : null;
     } catch { return null; }
 }
-const getKey   = () => localStorage.getItem('df_gemini') || '';
-const storeKey = k  => localStorage.setItem('df_gemini', k);
+// migra chave antiga (df_gemini) para df_gemini1
+(()=>{ const old=localStorage.getItem('df_gemini'); if(old&&!localStorage.getItem('df_gemini1')){ localStorage.setItem('df_gemini1',old); } })();
+const getKeys  = () => [1,2,3].map(i=>localStorage.getItem(`df_gemini${i}`)||'').filter(Boolean);
+const storeKey = (i,k) => localStorage.setItem(`df_gemini${i}`, k);
 
 // ════════════════════════════════════
 // TIME HELPERS
@@ -537,7 +546,7 @@ function nav(screen) {
     document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
     document.getElementById(`screen-${screen}`).classList.add('active');
     if (screen==='timer')    { lastIdx=-2; renderTimer(); }
-    if (screen==='settings') { document.getElementById('api-key-input').value=getKey(); }
+    if (screen==='settings') { const ks=getKeys(); [1,2,3].forEach(i=>{ document.getElementById(`api-key-${i}`).value=localStorage.getItem(`df_gemini${i}`)||''; }); }
     if (screen==='setup')    { resetSetup(); }
 }
 
@@ -829,7 +838,7 @@ function handleFileSelect(e) {
         imgMime=f.type; imgB64=url.split(',')[1];
         document.getElementById('prev-img').src=url;
         document.getElementById('img-prev').classList.add('on');
-        const hasKey=!!getKey();
+        const hasKey=getKeys().length>0;
         document.getElementById('analyze-wrap').style.display=hasKey?'block':'none';
         if(!hasKey) toast('Configure a chave Gemini API nas ⚙️ configurações');
     };
@@ -916,26 +925,28 @@ async function callOcrSpace() {
 
 async function analyzeImage() {
     if(!imgB64){ toast('Nenhuma imagem selecionada'); return; }
-    const key=getKey();
-    if(!key){ toast('Configure a chave Gemini API primeiro'); nav('settings'); return; }
+    const keys=getKeys();
+    if(!keys.length){ toast('Configure a chave Gemini API primeiro'); nav('settings'); return; }
 
     showLoad('Analisando imagem com IA...');
 
-    // 1. Tenta todos os modelos Gemini
-    for (const model of GEMINI_MODELS) {
-        try {
-            showLoad(`Analisando com ${model}...`);
-            const d = await callGemini(model, key);
-            const txt = d.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            if(!txt) throw new Error('Resposta vazia');
-            const items = parse(txt);
-            if(!items.length) throw new Error('Não consegui extrair horários. Tente digitar manualmente.');
-            hideLoad();
-            showPreview(items);
-            return;
-        } catch(err) {
-            const fatal = !/quota|resource.exhausted|not found|deprecated|unavailable|500|503|429/i.test(err.message);
-            if(fatal) { hideLoad(); toast('Erro: '+err.message); return; }
+    // 1. Tenta todos os modelos × todas as chaves
+    for (const key of keys) {
+        for (const model of GEMINI_MODELS) {
+            try {
+                showLoad(`Analisando com ${model}...`);
+                const d = await callGemini(model, key);
+                const txt = d.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                if(!txt) throw new Error('Resposta vazia');
+                const items = parse(txt);
+                if(!items.length) throw new Error('Não consegui extrair horários. Tente digitar manualmente.');
+                hideLoad();
+                showPreview(items);
+                return;
+            } catch(err) {
+                const fatal = !/quota|resource.exhausted|not found|deprecated|unavailable|500|503|429/i.test(err.message);
+                if(fatal) { hideLoad(); toast('Erro: '+err.message); return; }
+            }
         }
     }
 
@@ -1083,10 +1094,14 @@ function savePreview(){
 // ════════════════════════════════════
 // SETTINGS
 // ════════════════════════════════════
-function saveKey(){
-    const k=document.getElementById('api-key-input').value.trim();
-    if(!k){ toast('Digite uma chave válida'); return; }
-    storeKey(k); toast('Chave salva! ✓');
+function saveKeys(){
+    let saved=0;
+    [1,2,3].forEach(i=>{
+        const k=document.getElementById(`api-key-${i}`).value.trim();
+        if(k){ storeKey(i,k); saved++; } else { localStorage.removeItem(`df_gemini${i}`); }
+    });
+    if(!saved){ toast('Digite ao menos uma chave'); return; }
+    toast(`${saved} chave${saved>1?'s':''} salva${saved>1?'s':''}! ✓`);
 }
 function clearAll(){
     if(!confirm('Limpar a agenda de hoje?')) return;

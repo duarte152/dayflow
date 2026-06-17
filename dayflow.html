@@ -275,12 +275,18 @@
 
             <div class="divider" id="photo-divider">criar do zero</div>
 
-            <div class="upload-area" id="upload-area" onclick="document.getElementById('file-input').click()">
-                <div class="upload-icon">📷</div>
+            <div class="upload-area" id="upload-area">
+                <div class="upload-icon">🖼️</div>
                 <div class="upload-title">Foto do planejamento</div>
-                <div class="upload-hint">Toque para tirar foto ou escolher imagem</div>
+                <div class="upload-hint" style="margin-bottom:16px">Selecione como quer enviar a imagem</div>
+                <div style="display:flex;gap:10px;justify-content:center">
+                    <button onclick="event.stopPropagation();document.getElementById('file-camera').click()" style="flex:1;background:var(--acc);border:none;border-radius:11px;padding:11px;color:#fff;font-size:13px;font-weight:600;cursor:pointer">📷 Câmera</button>
+                    <button onclick="event.stopPropagation();document.getElementById('file-gallery').click()" style="flex:1;background:var(--surf2);border:1px solid var(--bord);border-radius:11px;padding:11px;color:var(--txt);font-size:13px;font-weight:600;cursor:pointer">🖼 Galeria / Arquivo</button>
+                </div>
             </div>
-            <input type="file" id="file-input" accept="image/*" capture="environment">
+            <input type="file" id="file-input" accept="image/*" style="display:none">
+            <input type="file" id="file-camera"  accept="image/*" capture="environment" style="display:none">
+            <input type="file" id="file-gallery" accept="image/*" style="display:none">
             <div class="img-prev" id="img-prev"><img id="prev-img" src="" alt=""></div>
             <div id="analyze-wrap" style="display:none">
                 <button class="btn btn-p" onclick="analyzeImage()">🤖 Analisar com IA</button>
@@ -816,7 +822,7 @@ function loadFromHash() {
 // ════════════════════════════════════
 // FILE UPLOAD
 // ════════════════════════════════════
-document.getElementById('file-input').addEventListener('change', function(e) {
+function handleFileSelect(e) {
     const f=e.target.files[0]; if(!f) return;
     const r=new FileReader();
     r.onload = ev => {
@@ -829,7 +835,9 @@ document.getElementById('file-input').addEventListener('change', function(e) {
         if(!hasKey) toast('Configure a chave Gemini API nas ⚙️ configurações');
     };
     r.readAsDataURL(f);
-});
+}
+document.getElementById('file-camera').addEventListener('change', handleFileSelect);
+document.getElementById('file-gallery').addEventListener('change', handleFileSelect);
 
 const ua=document.getElementById('upload-area');
 ua.addEventListener('dragover', e=>{ e.preventDefault(); ua.classList.add('over'); });
@@ -838,8 +846,8 @@ ua.addEventListener('drop', e=>{
     e.preventDefault(); ua.classList.remove('over');
     const f=e.dataTransfer.files[0];
     if(f?.type.startsWith('image/')){
-        document.getElementById('file-input').files=e.dataTransfer.files;
-        document.getElementById('file-input').dispatchEvent(new Event('change'));
+        document.getElementById('file-gallery').files=e.dataTransfer.files;
+        document.getElementById('file-gallery').dispatchEvent(new Event('change'));
     }
 });
 

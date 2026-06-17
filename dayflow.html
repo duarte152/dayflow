@@ -905,7 +905,6 @@ async function analyzeImage() {
     if(!key){ toast('Configure a chave Gemini API primeiro'); nav('settings'); return; }
 
     showLoad('Analisando imagem com IA...');
-    let quotaFail = false;
 
     // 1. Tenta todos os modelos Gemini
     for (const model of GEMINI_MODELS) {
@@ -920,33 +919,26 @@ async function analyzeImage() {
             showPreview(items);
             return;
         } catch(err) {
-            const retryable = /quota|not found|deprecated|unavailable|500|503/i.test(err.message);
-            if(/quota/i.test(err.message)) quotaFail = true;
-            if(!retryable) { hideLoad(); toast('Erro: '+err.message); return; }
+            const fatal = !/quota|resource.exhausted|not found|deprecated|unavailable|500|503|429/i.test(err.message);
+            if(fatal) { hideLoad(); toast('Erro: '+err.message); return; }
         }
     }
 
     // 2. Fallback: OCR.space (sem necessidade de chave própria)
-    if(quotaFail) {
-        try {
-            showLoad('Quota Gemini atingida — usando OCR alternativo...');
-            const txt = await callOcrSpace();
-            if(!txt.trim()) throw new Error('Texto não encontrado na imagem');
-            const items = parse(txt);
-            if(!items.length) throw new Error('OCR não reconheceu horários. Tente digitar manualmente.');
-            hideLoad();
-            showPreview(items);
-            toast('✓ Extraído via OCR alternativo (Gemini sem quota)');
-            return;
-        } catch(err) {
-            hideLoad();
-            toast('Quota Gemini esgotada. Crie nova chave em aistudio.google.com ou digite manualmente.');
-            return;
-        }
+    try {
+        showLoad('Gemini indisponível — tentando OCR alternativo...');
+        const txt = await callOcrSpace();
+        if(!txt.trim()) throw new Error('Texto não encontrado na imagem');
+        const items = parse(txt);
+        if(!items.length) throw new Error('OCR não reconheceu horários. Tente digitar manualmente.');
+        hideLoad();
+        showPreview(items);
+        toast('✓ Extraído via OCR alternativo');
+        return;
+    } catch(err) {
+        hideLoad();
+        toast('Falha no OCR: '+err.message+'. Tente digitar manualmente.');
     }
-
-    hideLoad();
-    toast('Falha em todos os modelos. Tente digitar manualmente.');
 }
 
 // ════════════════════════════════════

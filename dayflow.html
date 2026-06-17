@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="theme-color" content="#0a0a0f">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱</text></svg>">
+    <title>DayFlow</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #0a0a0f;
+            --surf: #13131f;
+            --surf2: #1c1c2e;
+            --bord: #252536;
+            --acc: #6366f1;
+            --acc-dim: rgba(99,102,241,.12);
+            --txt: #f1f1f3;
+            --txt2: #9ca3af;
+            --txt3: #4b5563;
+            --ok: #10b981;
+            --warn: #f59e0b;
+            --hot: #ef4444;
+        }
+
+        html, body { height: 100%; background: var(--bg); color: var(--txt); font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; overflow: hidden; -webkit-tap-highlight-color: transparent; }
+
+        #app { height: 100%; display: flex; flex-direction: column; max-width: 480px; margin: 0 auto; }
+
+        .screen { display: none; flex-direction: column; height: 100%; overflow: hidden; }
+        .screen.active { display: flex; }
+
+        /* ── Header ── */
+        .hdr { display: flex; align-items: center; padding: 12px 16px; gap: 8px; flex-shrink: 0; border-bottom: 1px solid var(--bord); }
+        .hdr-left { flex: 1; min-width: 0; }
+        .hdr-title { font-size: 17px; font-weight: 800; letter-spacing: -.4px; display: flex; align-items: baseline; gap: 1px; }
+        .hdr-title span { color: var(--acc); }
+        .hdr-date { font-size: 10px; color: var(--txt3); margin-top: 1px; }
+        .hdr-clock { font-size: 22px; font-weight: 700; letter-spacing: -1px; font-variant-numeric: tabular-nums; color: var(--txt2); font-family: 'SF Mono','Fira Code',monospace; flex-shrink: 0; }
+        .ibtn { width: 34px; height: 34px; border: none; background: var(--surf); border-radius: 9px; color: var(--txt2); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; transition: background .15s; flex-shrink: 0; }
+        .ibtn:hover { background: var(--bord); color: var(--txt); }
+        .ibtn.active { background: var(--acc-dim); color: var(--acc); }
+
+        /* ── Day progress bar (top of timer) ── */
+        .day-bar { height: 3px; background: var(--bord); flex-shrink: 0; }
+        .day-bar-fill { height: 100%; background: linear-gradient(90deg, var(--ok), var(--acc)); transition: width 10s linear; }
+
+        /* ── Body ── */
+        .body { flex: 1; overflow-y: auto; padding: 12px 16px 32px; display: flex; flex-direction: column; gap: 11px; }
+        ::-webkit-scrollbar { width: 3px; } ::-webkit-scrollbar-thumb { background: var(--bord); border-radius: 2px; }
+
+        /* ── Cards ── */
+        .card { background: var(--surf); border: 1px solid var(--bord); border-radius: 20px; padding: 20px; }
+        .card-hero { position: relative; overflow: hidden; transition: border-color .4s; }
+        .card-hero::before { content:''; position:absolute; top:0;left:0;right:0; height:3px; border-radius:20px 20px 0 0; transition: background .6s; }
+        .card-hero.normal::before  { background: linear-gradient(90deg,#6366f1,#8b5cf6); }
+        .card-hero.warn5::before   { background: linear-gradient(90deg,#f59e0b,#fbbf24); }
+        .card-hero.warn2::before   { background: linear-gradient(90deg,#ef4444,#f97316); }
+        .card-hero.warn2 { border-color: rgba(239,68,68,.35); animation: borderPulse 1.2s infinite; }
+        @keyframes borderPulse { 0%,100%{border-color:rgba(239,68,68,.35)} 50%{border-color:rgba(239,68,68,.7)} }
+
+        /* ── Warning banner ── */
+        .warn-banner { border-radius: 12px; padding: 10px 14px; font-size: 13px; font-weight: 600; display: none; align-items: center; gap: 8px; }
+        .warn-banner.on { display: flex; }
+        .warn-banner.y { background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.3); color: var(--warn); }
+        .warn-banner.r { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3); color: var(--hot); animation: warnp 1s infinite; }
+        @keyframes warnp { 0%,100%{opacity:1} 50%{opacity:.6} }
+
+        /* ── Chip ── */
+        .chip { font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--acc); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+        .live-dot { width: 7px; height: 7px; background: var(--ok); border-radius: 50%; animation: pulse 2s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+        .act-name { font-size: 24px; font-weight: 700; line-height: 1.2; margin-bottom: 3px; }
+        .act-sub  { font-size: 12px; color: var(--txt3); margin-bottom: 18px; }
+
+        /* ── Progress ── */
+        .prog-bar { height: 4px; background: var(--bord); border-radius: 2px; margin-bottom: 14px; overflow: hidden; }
+        .prog-fill { height: 100%; border-radius: 2px; transition: width .9s linear, background .6s; }
+
+        /* ── Countdown ── */
+        .cd { font-size: 60px; font-weight: 800; letter-spacing: -3px; font-variant-numeric: tabular-nums; font-family: 'SF Mono','Fira Code',monospace; line-height: 1; transition: color .5s; }
+        .cd.urgent { animation: cdp 1s infinite; }
+        @keyframes cdp { 0%,100%{opacity:1} 50%{opacity:.5} }
+        .cd-sub { font-size: 10px; color: var(--txt3); letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }
+
+        /* ── Next card ── */
+        .next-card { display: flex; align-items: center; gap: 12px; }
+        .next-badge { background: var(--surf2); border-radius: 11px; padding: 9px 13px; font-size: 14px; font-weight: 700; color: var(--txt2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .next-info { flex: 1; min-width: 0; }
+        .next-chip { font-size: 9px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--acc); margin-bottom: 2px; }
+        .next-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .next-in   { font-size: 11px; color: var(--txt3); margin-top: 2px; }
+
+        /* ── Schedule list ── */
+        .sched-toggle { font-size: 10px; font-weight: 700; color: var(--txt3); text-transform: uppercase; letter-spacing: 1.5px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 13px 16px; border-radius: 16px; user-select: none; background: var(--surf); border: 1px solid var(--bord); }
+        .sched-list { display: none; flex-direction: column; background: var(--surf); border: 1px solid var(--bord); border-radius: 0 0 14px 14px; margin-top: -6px; padding: 6px 14px 14px; border-top: none; }
+        .sched-list.open { display: flex; }
+        .sched-toggle.open { border-radius: 16px 16px 0 0; border-bottom-color: transparent; }
+        .sched-item { display: flex; align-items: center; gap: 11px; padding: 8px 4px; border-bottom: 1px solid var(--bord); }
+        .sched-item:last-child { border-bottom: none; }
+        .sched-time { font-size: 12px; font-weight: 600; color: var(--txt3); width: 38px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+        .sched-dot  { width: 7px; height: 7px; border-radius: 50%; background: var(--bord); flex-shrink: 0; }
+        .sched-item.cur .sched-dot { background: var(--acc); box-shadow: 0 0 0 3px rgba(99,102,241,.2); }
+        .sched-item.cur .sched-time { color: var(--acc); }
+        .sched-item.past { opacity: .3; }
+        .sched-act { font-size: 13px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sched-dur { font-size: 11px; color: var(--txt3); flex-shrink: 0; }
+
+        /* ── State pages ── */
+        .state-c { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px 24px; gap: 10px; }
+        .state-emoji { font-size: 48px; }
+        .state-title { font-size: 20px; font-weight: 700; }
+        .state-sub { font-size: 13px; color: var(--txt3); max-width: 240px; line-height: 1.6; }
+        .big-cd { font-size: 50px; font-weight: 800; color: var(--acc); font-variant-numeric: tabular-nums; font-family: monospace; letter-spacing: -2px; }
+
+        /* ── Confetti ── */
+        .conf-wrap { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 50; }
+        .conf { position: absolute; animation: fall linear forwards; }
+        @keyframes fall { from{transform:translateY(-20px) rotate(0deg);opacity:1} to{transform:translateY(110vh) rotate(720deg);opacity:0} }
+
+        /* ── Compact ── */
+        #app.compact .act-name { font-size: 18px; }
+        #app.compact .cd { font-size: 44px; }
+        #app.compact .card { padding: 14px 16px; }
+        #app.compact .body { gap: 8px; padding: 10px 12px 24px; }
+
+        /* ── Buttons ── */
+        .btn { border: none; border-radius: 13px; padding: 14px 20px; font-size: 15px; font-weight: 600; cursor: pointer; width: 100%; text-align: center; transition: opacity .15s, transform .1s; }
+        .btn:active { transform: scale(.97); }
+        .btn-p { background: var(--acc); color: #fff; }
+        .btn-p:hover { opacity: .9; }
+        .btn-s { background: var(--surf2); color: var(--txt); border: 1px solid var(--bord); }
+        .btn-d { background: rgba(239,68,68,.1); color: var(--hot); border: 1px solid rgba(239,68,68,.22); }
+
+        /* ── Upload ── */
+        .upload-area { background: var(--surf); border: 2px dashed var(--bord); border-radius: 16px; padding: 30px 20px; text-align: center; cursor: pointer; transition: border-color .2s, background .2s; }
+        .upload-area:hover, .upload-area.over { border-color: var(--acc); background: var(--acc-dim); }
+        .upload-icon { font-size: 34px; margin-bottom: 8px; }
+        .upload-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+        .upload-hint { font-size: 12px; color: var(--txt3); }
+        #file-input { display: none; }
+        .img-prev { border-radius: 12px; overflow: hidden; display: none; }
+        .img-prev img { width: 100%; max-height: 240px; object-fit: contain; display: block; }
+        .img-prev.on { display: block; }
+
+        .divider { display: flex; align-items: center; gap: 10px; color: var(--txt3); font-size: 12px; }
+        .divider::before, .divider::after { content:''; flex:1; height:1px; background: var(--bord); }
+
+        .field-lbl { font-size: 10px; font-weight: 700; color: var(--txt3); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 7px; }
+
+        textarea, input[type=text], input[type=password], input[type=time] {
+            width: 100%; background: var(--surf); border: 1px solid var(--bord); border-radius: 11px;
+            padding: 12px 13px; color: var(--txt); font-size: 14px; font-family: inherit; outline: none;
+            transition: border-color .2s;
+        }
+        textarea { resize: none; line-height: 1.8; font-family: 'SF Mono','Fira Code',monospace; }
+        textarea:focus, input:focus { border-color: var(--acc); }
+        textarea::placeholder, input::placeholder { color: var(--txt3); }
+
+        /* ── Preview ── */
+        .prev-item { background: var(--surf); border: 1px solid var(--bord); border-radius: 12px; padding: 11px 13px; display: flex; align-items: center; gap: 9px; animation: fadeUp .2s ease; }
+        .prev-time { font-size: 13px; font-weight: 700; color: var(--acc); font-variant-numeric: tabular-nums; width: 44px; flex-shrink: 0; }
+        .prev-act { flex: 1; background: transparent; border: none; color: var(--txt); font-size: 14px; font-family: inherit; outline: none; }
+        .prev-del { background: none; border: none; color: var(--txt3); cursor: pointer; font-size: 14px; padding: 4px 5px; border-radius: 7px; transition: color .15s; }
+        .prev-del:hover { color: var(--hot); }
+
+        .add-form { background: var(--surf); border: 1px dashed var(--bord); border-radius: 12px; padding: 13px; display: none; flex-direction: column; gap: 9px; }
+        .add-form.on { display: flex; }
+        .add-row { display: flex; gap: 7px; align-items: center; }
+        .add-row input[type=time] { width: 116px; flex-shrink: 0; }
+        .add-row input[type=text] { flex: 1; }
+        .add-sub { background: var(--acc); border: none; border-radius: 9px; padding: 11px 16px; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
+        .add-open { background: var(--surf); border: 1px dashed var(--bord); border-radius: 12px; padding: 12px; text-align: center; color: var(--txt3); font-size: 13px; cursor: pointer; transition: all .2s; }
+        .add-open:hover { border-color: var(--acc); color: var(--acc); }
+
+        /* ── Settings ── */
+        .set-card { background: var(--surf); border: 1px solid var(--bord); border-radius: 16px; padding: 16px 18px; }
+        .set-card h3 { font-size: 13px; font-weight: 700; margin-bottom: 5px; }
+        .set-card p { font-size: 12px; color: var(--txt3); margin-bottom: 12px; line-height: 1.6; }
+        .set-card p a { color: var(--acc); text-decoration: none; }
+        .row { display: flex; gap: 8px; }
+        .row input { flex: 1; }
+        .save-btn { background: var(--acc); border: none; border-radius: 9px; padding: 0 16px; color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; }
+        .btn-sm { padding: 9px 14px; font-size: 12px; border-radius: 9px; width: auto; }
+
+        /* ── Tip ── */
+        .tip { background: var(--acc-dim); border: 1px solid rgba(99,102,241,.18); border-radius: 12px; padding: 13px 15px; font-size: 12px; line-height: 1.7; color: var(--txt2); }
+        .tip strong { color: var(--acc); }
+
+        /* ── Share toast ── */
+        .share-btn { display: flex; align-items: center; gap: 6px; background: var(--surf2); border: 1px solid var(--bord); border-radius: 9px; padding: 8px 12px; font-size: 12px; color: var(--txt2); cursor: pointer; transition: all .2s; white-space: nowrap; }
+        .share-btn:hover { border-color: var(--acc); color: var(--acc); }
+
+        /* ── Loading ── */
+        .overlay { position: fixed; inset: 0; background: rgba(10,10,15,.88); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; flex-direction: column; gap: 14px; z-index: 99; }
+        .overlay.on { display: flex; }
+        .spinner { width: 40px; height: 40px; border: 3px solid var(--bord); border-top-color: var(--acc); border-radius: 50%; animation: spin .8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .overlay-txt { font-size: 13px; color: var(--txt2); }
+
+        /* ── Toast ── */
+        .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(12px); background: var(--surf2); border: 1px solid var(--bord); border-radius: 11px; padding: 10px 18px; font-size: 13px; opacity: 0; transition: all .25s; pointer-events: none; white-space: nowrap; z-index: 200; max-width: 88vw; overflow: hidden; text-overflow: ellipsis; }
+        .toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+        @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        .fade-up  { animation: fadeUp .3s ease; }
+        @keyframes slideIn { from{opacity:0;transform:scale(.96)} to{opacity:1;transform:scale(1)} }
+        .slide-in { animation: slideIn .3s ease; }
+
+        .prev-foot { padding: 10px 16px 22px; display: flex; flex-direction: column; gap: 9px; flex-shrink: 0; border-top: 1px solid var(--bord); }
+
+        /* ── Wake lock dot (subtle) ── */
+        .wake-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--txt3); display: none; }
+        .wake-dot.on { display: block; background: var(--ok); }
+
+        /* ── Complete now button ── */
+        .complete-btn { display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--surf2); border: 1px solid var(--bord); border-radius: 12px; padding: 12px; font-size: 13px; font-weight: 600; color: var(--txt2); cursor: pointer; width: 100%; transition: all .2s; }
+        .complete-btn:hover { border-color: var(--ok); color: var(--ok); background: rgba(16,185,129,.08); }
+        .complete-btn:active { transform: scale(.97); }
+
+        /* ── Templates ── */
+        .tpl-list { display: flex; flex-direction: column; gap: 7px; }
+        .tpl-item { background: var(--surf); border: 1px solid var(--bord); border-radius: 12px; padding: 11px 14px; display: flex; align-items: center; gap: 10px; cursor: pointer; transition: border-color .15s; }
+        .tpl-item:hover { border-color: var(--acc); }
+        .tpl-icon { font-size: 20px; flex-shrink: 0; }
+        .tpl-info { flex: 1; min-width: 0; }
+        .tpl-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tpl-meta { font-size: 11px; color: var(--txt3); margin-top: 1px; }
+        .tpl-del { background: none; border: none; color: var(--txt3); cursor: pointer; font-size: 14px; padding: 4px 6px; border-radius: 7px; flex-shrink: 0; }
+        .tpl-del:hover { color: var(--hot); }
+        .tpl-empty { font-size: 13px; color: var(--txt3); text-align: center; padding: 16px; }
+    </style>
+</head>
+<body>
+<div id="app">
+
+    <!-- ══════════ TIMER ══════════ -->
+    <div id="screen-timer" class="screen active">
+        <div class="hdr">
+            <div class="hdr-left">
+                <div class="hdr-title">Day<span>Flow</span> <div class="wake-dot" id="wake-dot" title="Tela mantida ativa"></div></div>
+                <div class="hdr-date" id="hdr-date"></div>
+            </div>
+            <div class="hdr-clock" id="hdr-clock">00:00</div>
+            <button class="ibtn" id="share-ibtn" onclick="shareSchedule()" title="Compartilhar agenda">🔗</button>
+            <button class="ibtn" id="compact-ibtn" onclick="toggleCompact()" title="Modo compacto [C]">⊡</button>
+            <button class="ibtn" onclick="nav('setup')" title="Editar agenda [E]">✏️</button>
+            <button class="ibtn" onclick="nav('settings')" title="Configurações">⚙️</button>
+        </div>
+        <div class="day-bar"><div class="day-bar-fill" id="day-bar-fill" style="width:0%"></div></div>
+        <div class="body" id="timer-body"></div>
+    </div>
+
+    <!-- ══════════ SETUP ══════════ -->
+    <div id="screen-setup" class="screen">
+        <div class="hdr">
+            <button class="ibtn" onclick="nav('timer')">←</button>
+            <div class="hdr-left"><div class="hdr-title">Nova <span>Agenda</span></div></div>
+        </div>
+        <div class="body">
+
+            <!-- Templates no topo — carregamento rápido -->
+            <div id="tpl-section" style="display:none">
+                <div class="field-lbl" style="margin-bottom:10px">Templates salvos</div>
+                <div class="tpl-list" id="tpl-list"></div>
+            </div>
+
+            <div id="yesterday-btn" style="display:none">
+                <button class="btn btn-s" onclick="loadYesterday()">♻️ Usar agenda de ontem</button>
+            </div>
+
+            <div class="divider" id="photo-divider">criar do zero</div>
+
+            <div class="upload-area" id="upload-area" onclick="document.getElementById('file-input').click()">
+                <div class="upload-icon">📷</div>
+                <div class="upload-title">Foto do planejamento</div>
+                <div class="upload-hint">Toque para tirar foto ou escolher imagem</div>
+            </div>
+            <input type="file" id="file-input" accept="image/*" capture="environment">
+            <div class="img-prev" id="img-prev"><img id="prev-img" src="" alt=""></div>
+            <div id="analyze-wrap" style="display:none">
+                <button class="btn btn-p" onclick="analyzeImage()">🤖 Analisar com IA</button>
+            </div>
+            <div class="divider">ou escreva manualmente</div>
+            <div>
+                <div class="field-lbl">Agenda — um horário por linha</div>
+                <textarea id="manual-input" rows="9"
+                    placeholder="10:00 - Acordar&#10;10:30 - Café da manhã&#10;11:00 - Trabalho&#10;13:00 - Almoço&#10;14:00 - Reunião&#10;17:00 - Academia&#10;19:00 - Jantar&#10;22:00 - Dormir"></textarea>
+            </div>
+            <div style="display:flex;gap:9px">
+                <button class="btn btn-s" onclick="loadExample()" style="flex:1">📋 Exemplo</button>
+                <button class="btn btn-p" onclick="confirmManual()" style="flex:2">✓ Confirmar</button>
+            </div>
+
+            <div class="tip">
+                <strong>Formatos aceitos por linha:</strong><br>
+                <code>10:00 - Acordar</code> · <code>10h30 Reunião</code> · <code>14:00: Almoço</code><br><br>
+                Para análise de foto, configure a chave Gemini API (grátis) nas ⚙️ configurações.
+                Ou compartilhe uma agenda pelo link 🔗 do timer.
+            </div>
+        </div>
+    </div>
+
+    <!-- ══════════ PREVIEW ══════════ -->
+    <div id="screen-preview" class="screen">
+        <div class="hdr">
+            <button class="ibtn" onclick="nav('setup')">←</button>
+            <div class="hdr-left"><div class="hdr-title">Revisar <span>Agenda</span></div></div>
+            <span id="prev-count" style="font-size:11px;color:var(--txt3)"></span>
+        </div>
+        <div class="body" id="preview-body"></div>
+        <div class="prev-foot">
+            <div class="add-open" onclick="toggleAddForm()">+ Adicionar atividade</div>
+            <div class="add-form" id="add-form">
+                <div class="field-lbl">Nova atividade</div>
+                <div class="add-row">
+                    <input type="time" id="new-time">
+                    <input type="text" id="new-act" placeholder="Atividade">
+                    <button class="add-sub" onclick="submitAdd()">+</button>
+                </div>
+            </div>
+            <div style="display:flex;gap:8px">
+                <button class="btn btn-s" onclick="saveAsTemplate()" style="flex:1">📌 Salvar template</button>
+                <button class="btn btn-p" onclick="savePreview()" style="flex:2">✓ Iniciar Timer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══════════ SETTINGS ══════════ -->
+    <div id="screen-settings" class="screen">
+        <div class="hdr">
+            <button class="ibtn" onclick="nav('timer')">←</button>
+            <div class="hdr-left"><div class="hdr-title"><span>Configurações</span></div></div>
+        </div>
+        <div class="body">
+            <div class="set-card">
+                <h3>🔑 Chave Gemini API</h3>
+                <p>Para analisar fotos com IA. Grátis em
+                   <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a></p>
+                <div class="row">
+                    <input type="password" id="api-key-input" placeholder="AIzaSy...">
+                    <button class="save-btn" onclick="saveKey()">Salvar</button>
+                </div>
+            </div>
+            <div class="set-card">
+                <h3>🔔 Notificações</h3>
+                <p>Receba alerta quando trocar de atividade.</p>
+                <button class="btn btn-s" onclick="reqNotif()">Ativar Notificações</button>
+            </div>
+            <div class="set-card">
+                <h3>⏱ Testar alertas</h3>
+                <p>Preview dos sons e avisos de aproximação.</p>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button class="btn btn-s btn-sm" onclick="testW(5)">🟡 5 min</button>
+                    <button class="btn btn-s btn-sm" onclick="testW(2)">🟠 2 min</button>
+                    <button class="btn btn-s btn-sm" onclick="testW(0)">🔔 Troca</button>
+                </div>
+            </div>
+            <div class="set-card">
+                <h3>📱 Instalar no celular</h3>
+                <p style="margin-bottom:0">
+                    <strong>Android Chrome:</strong> menu ⋮ → "Adicionar à tela inicial"<br>
+                    <strong>iPhone Safari:</strong> botão compartilhar → "Adicionar à Tela de Início"<br><br>
+                    O app funciona offline depois de instalado!
+                </p>
+            </div>
+
+            <div class="set-card">
+                <h3>⌨️ Atalhos de teclado</h3>
+                <p style="margin-bottom:0"><code>S</code> abre agenda · <code>E</code> editar · <code>C</code> compacto · <code>Space</code> toggle lista</p>
+            </div>
+            <div class="set-card">
+                <h3>🗑️ Limpar agenda</h3>
+                <p>Remove a agenda de hoje.</p>
+                <button class="btn btn-d" onclick="clearAll()">Limpar agenda de hoje</button>
+            </div>
+            <div class="tip">
+                <strong>Como usar:</strong><br>
+                1. Escreva seu planejamento no papel<br>
+                2. Abra "Nova Agenda" → tire uma foto<br>
+                3. A IA extrai os horários automaticamente<br>
+                4. O timer acompanha seu dia sozinho!<br><br>
+                <strong>Compartilhamento:</strong> o botão 🔗 gera um link com sua agenda para abrir em qualquer dispositivo.
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<div class="overlay" id="overlay">
+    <div class="spinner"></div>
+    <div class="overlay-txt" id="overlay-txt">Analisando...</div>
+</div>
+<div class="toast" id="toast"></div>
+<div class="conf-wrap" id="conf-wrap"></div>
+
+<script>
+// ════════════════════════════════════
+// SAMPLE & STATE
+// ════════════════════════════════════
+const SAMPLE = [
+    {time:'07:00',activity:'Acordar + café da manhã'},
+    {time:'08:00',activity:'Exercício / academia'},
+    {time:'09:30',activity:'Trabalho — bloco 1'},
+    {time:'12:00',activity:'Almoço'},
+    {time:'13:00',activity:'Trabalho — bloco 2'},
+    {time:'17:00',activity:'Pausa / caminhada'},
+    {time:'18:00',activity:'Tempo livre'},
+    {time:'22:00',activity:'Dormir'},
+];
+
+let schedule  = [];
+let pending   = [];
+let imgB64 = null, imgMime = null;
+let timerID = null, clockID = null;
+let lastIdx = -2;
+let wakeLock = null;
+let confFired = false;
+let warned5 = false, warned2 = false;
+let compact = false;
+
+// ════════════════════════════════════
+// STORAGE
+// ════════════════════════════════════
+const TODAY     = () => new Date().toISOString().split('T')[0];
+const YESTERDAY = () => { const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split('T')[0]; };
+
+function persist(items) {
+    schedule = items;
+    localStorage.setItem('df_sched', JSON.stringify({date:TODAY(), items}));
+}
+function loadStorage() {
+    try {
+        const d = JSON.parse(localStorage.getItem('df_sched')||'{}');
+        schedule = (d.date===TODAY() && Array.isArray(d.items)) ? d.items : [];
+    } catch { schedule=[]; }
+}
+function getYesterday() {
+    try {
+        const d = JSON.parse(localStorage.getItem('df_sched')||'{}');
+        return (d.date===YESTERDAY() && Array.isArray(d.items)) ? d.items : null;
+    } catch { return null; }
+}
+const getKey   = () => localStorage.getItem('df_gemini') || '';
+const storeKey = k  => localStorage.setItem('df_gemini', k);
+
+// ════════════════════════════════════
+// TIME HELPERS
+// ════════════════════════════════════
+const toMin  = t => { const [h,m]=t.split(':').map(Number); return h*60+m; };
+const nowMin = () => { const n=new Date(); return n.getHours()*60+n.getMinutes()+n.getSeconds()/60; };
+const pad2   = n => String(n).padStart(2,'0');
+
+function fmt(sec) {
+    sec = Math.max(0, sec);
+    const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=Math.floor(sec%60);
+    return h ? `${h}:${pad2(m)}:${pad2(s)}` : `${pad2(m)}:${pad2(s)}`;
+}
+function fmtAgo(sec) {
+    const m = Math.round(sec/60);
+    if (m < 1) return 'agora há pouco';
+    if (m === 1) return 'há 1 min';
+    if (m < 60) return `há ${m} min`;
+    const h = Math.floor(m/60), rm = m%60;
+    return rm ? `há ${h}h ${rm}min` : `há ${h}h`;
+}
+function fmtIn(sec) {
+    const m = Math.round(sec/60);
+    if (m < 1) return 'menos de 1 min';
+    if (m === 1) return '1 min';
+    if (m < 60) return `${m} min`;
+    const h = Math.floor(m/60), rm = m%60;
+    return rm ? `${h}h ${rm}min` : `${h}h`;
+}
+function durLabel(fromTime, toTime) {
+    const min = toMin(toTime) - toMin(fromTime);
+    if (min <= 0) return '';
+    const h = Math.floor(min/60), m = min%60;
+    return h&&m ? `${h}h${m}` : h ? `${h}h` : `${m}min`;
+}
+
+// ════════════════════════════════════
+// BLOCK LOGIC
+// ════════════════════════════════════
+function block() {
+    if (!schedule.length) return {st:'empty'};
+    const now = nowMin();
+    let idx = -1;
+    for (let i=0; i<schedule.length; i++) {
+        if (now >= toMin(schedule[i].time)) idx=i; else break;
+    }
+    if (idx===-1) return {st:'before', next:schedule[0], sec:Math.max(0,(toMin(schedule[0].time)-now)*60), idx:-1};
+    if (idx===schedule.length-1) return {st:'last', cur:schedule[idx], idx};
+    const cur=schedule[idx], next=schedule[idx+1];
+    const tot = (toMin(next.time)-toMin(cur.time))*60;
+    const rem = Math.max(0,(toMin(next.time)-now)*60);
+    const elapsed = (now - toMin(cur.time))*60;
+    return {st:'active', cur, next, idx, rem, tot, prog:Math.min(1,1-rem/tot), elapsed};
+}
+
+function dayProgress() {
+    if (!schedule.length) return 0;
+    const first = toMin(schedule[0].time);
+    const last  = toMin(schedule[schedule.length-1].time);
+    if (last <= first) return 0;
+    const now = nowMin();
+    return Math.min(1, Math.max(0, (now-first)/(last-first)));
+}
+
+// ════════════════════════════════════
+// PARSE TEXT
+// ════════════════════════════════════
+function parse(text) {
+    return text.split('\n').map(l=>l.trim()).filter(Boolean).map(l => {
+        const m = l.match(/^(\d{1,2})[hH:](\d{0,2})\s*[-:–—]?\s*(.+)$/i);
+        if (!m) return null;
+        const h=pad2(parseInt(m[1])), mn=m[2]?pad2(parseInt(m[2]||'0')):'00';
+        const act=m[3].trim();
+        return act?{time:`${h}:${mn}`,activity:act}:null;
+    }).filter(Boolean).sort((a,b)=>toMin(a.time)-toMin(b.time));
+}
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+// ════════════════════════════════════
+// NAVIGATION
+// ════════════════════════════════════
+function nav(screen) {
+    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+    document.getElementById(`screen-${screen}`).classList.add('active');
+    if (screen==='timer')    { lastIdx=-2; renderTimer(); }
+    if (screen==='settings') { document.getElementById('api-key-input').value=getKey(); }
+    if (screen==='setup')    { resetSetup(); }
+}
+
+function resetSetup() {
+    imgB64=null; imgMime=null;
+    document.getElementById('img-prev').classList.remove('on');
+    document.getElementById('analyze-wrap').style.display='none';
+    document.getElementById('file-input').value='';
+    document.getElementById('manual-input').value=schedule.map(s=>`${s.time} - ${s.activity}`).join('\n');
+    document.getElementById('yesterday-btn').style.display=getYesterday()?'block':'none';
+    renderTemplates();
+}
+
+function toggleCompact() {
+    compact = !compact;
+    document.getElementById('app').classList.toggle('compact', compact);
+    document.getElementById('compact-ibtn').classList.toggle('active', compact);
+}
+
+// ════════════════════════════════════
+// URGENCY HELPERS
+// ════════════════════════════════════
+function urgCol(sec) {
+    if (sec<=60)  return '#ef4444';
+    if (sec<=120) return '#f97316';
+    if (sec<=300) return '#f59e0b';
+    return '#f1f1f3';
+}
+function urgGrad(sec) {
+    if (sec<=60)  return 'linear-gradient(90deg,#ef4444,#f97316)';
+    if (sec<=120) return 'linear-gradient(90deg,#f97316,#fbbf24)';
+    if (sec<=300) return 'linear-gradient(90deg,#f59e0b,#fbbf24)';
+    return 'linear-gradient(90deg,#6366f1,#8b5cf6)';
+}
+function urgClass(sec) {
+    if (sec<=120) return 'warn2';
+    if (sec<=300) return 'warn5';
+    return 'normal';
+}
+
+// ════════════════════════════════════
+// TIMER RENDER
+// ════════════════════════════════════
+function renderTimer() {
+    const b = block();
+    const body = document.getElementById('timer-body');
+    const dbf  = document.getElementById('day-bar-fill');
+    const si   = document.getElementById('share-ibtn');
+    confFired = false;
+
+    dbf.style.width = (dayProgress()*100).toFixed(1)+'%';
+    si.style.display = schedule.length ? 'flex' : 'none';
+
+    if (b.st==='empty') {
+        body.innerHTML=`
+            <div class="state-c">
+                <div class="state-emoji">📋</div>
+                <div class="state-title">Nenhuma agenda</div>
+                <div class="state-sub">Crie sua agenda do dia e o timer vai te acompanhar automaticamente.</div>
+                <button class="btn btn-p" onclick="nav('setup')" style="max-width:210px;margin-top:8px">+ Criar Agenda</button>
+                <button class="btn btn-s" onclick="loadExampleDirect()" style="max-width:210px;margin-top:4px">📋 Carregar Exemplo</button>
+            </div>`;
+        return;
+    }
+
+    if (b.st==='before') {
+        body.innerHTML=`
+            <div class="state-c fade-up">
+                <div class="state-emoji">⏳</div>
+                <div class="state-title">Aguardando início</div>
+                <div class="state-sub">Primeira atividade em</div>
+                <div class="big-cd" id="bc">${fmt(b.sec)}</div>
+                <div class="state-sub" style="margin-top:6px"><strong style="color:var(--txt)">${b.next.time}</strong> · ${esc(b.next.activity)}</div>
+            </div>
+            ${schedList(b)}`;
+        return;
+    }
+
+    if (b.st==='last') {
+        body.innerHTML=`
+            <div class="card card-hero normal slide-in">
+                <div class="chip"><span class="live-dot"></span>Agora</div>
+                <div class="act-name">${esc(b.cur.activity)}</div>
+                <div class="act-sub">Início às ${b.cur.time}</div>
+                <div class="cd" style="color:var(--txt3)">∞</div>
+                <div class="cd-sub">última atividade do dia</div>
+            </div>
+            <div class="card slide-in" style="text-align:center;padding:20px">
+                <div style="font-size:34px;margin-bottom:7px">🎉</div>
+                <div style="font-weight:700;font-size:16px">Dia concluído!</div>
+                <div style="font-size:12px;color:var(--txt3);margin-top:3px">Todas as atividades finalizadas</div>
+            </div>
+            ${schedList(b)}`;
+        if (!confFired) { confFired=true; launchConfetti(); }
+        return;
+    }
+
+    // Active block
+    const uc  = urgClass(b.rem);
+    const col = urgCol(b.rem);
+    const grd = urgGrad(b.rem);
+    const pct = (b.prog*100).toFixed(1);
+    const urgent = b.rem<=120;
+
+    const warnHtml = b.rem<=300 ? `
+        <div class="warn-banner ${b.rem<=120?'r':'y'} on">
+            ${b.rem<=120?'🔴':'🟡'}
+            <span>${b.rem<=120?'Menos de 2 min':'Menos de 5 min'} para <strong>${esc(b.next.activity)}</strong></span>
+        </div>` : '';
+
+    body.innerHTML=`
+        ${warnHtml}
+        <div class="card card-hero ${uc} slide-in">
+            <div class="chip"><span class="live-dot"></span>Agora</div>
+            <div class="act-name">${esc(b.cur.activity)}</div>
+            <div class="act-sub">Início às ${b.cur.time} · ${fmtAgo(b.elapsed)}</div>
+            <div class="prog-bar"><div class="prog-fill" id="pf" style="width:${pct}%;background:${grd}"></div></div>
+            <div class="cd ${urgent?'urgent':''}" id="cd" style="color:${col}">${fmt(b.rem)}</div>
+            <div class="cd-sub">restando até ${b.next.time}</div>
+        </div>
+        <div class="card next-card slide-in">
+            <div class="next-badge">${b.next.time}</div>
+            <div class="next-info">
+                <div class="next-chip">A seguir</div>
+                <div class="next-name">${esc(b.next.activity)}</div>
+                <div class="next-in">em ${fmtIn(b.rem)}</div>
+            </div>
+        </div>
+        <button class="complete-btn slide-in" onclick="completeNow(${b.idx})">
+            ✓ &nbsp;Completar agora · iniciar <strong>${esc(b.next.activity)}</strong>
+        </button>
+        ${schedList(b)}`;
+}
+
+function schedList(b) {
+    if (!schedule.length) return '';
+    const now = nowMin();
+    const items = schedule.map((s,i)=>{
+        const next = schedule[i+1];
+        const dur = next ? durLabel(s.time, next.time) : '';
+        const cur  = b.idx===i;
+        const past = !cur && now>toMin(s.time);
+        return `<div class="sched-item ${cur?'cur':''} ${past?'past':''}">
+            <div class="sched-time">${s.time}</div>
+            <div class="sched-dot"></div>
+            <div class="sched-act">${esc(s.activity)}</div>
+            ${dur?`<div class="sched-dur">${dur}</div>`:''}
+        </div>`;
+    }).join('');
+    return `
+        <div class="sched-toggle open" id="sched-hdr" onclick="togSched(this)">Agenda do dia <span>▴</span></div>
+        <div class="sched-list open" id="sched-body">${items}</div>`;
+}
+
+function togSched(hdr) {
+    const b=document.getElementById('sched-body'); if(!b) return;
+    const o=b.classList.toggle('open');
+    hdr.classList.toggle('open',o);
+    hdr.querySelector('span').textContent=o?'▴':'▾';
+}
+
+// ════════════════════════════════════
+// CLOCK TICK
+// ════════════════════════════════════
+function tick() {
+    const b = block();
+
+    // Full re-render if block changed
+    if (b.idx !== lastIdx) {
+        const prev=lastIdx; lastIdx=b.idx??-1;
+        warned5=false; warned2=false;
+        if (prev>=-1 && b.idx>=0) { playSwap(); doVibrate([200,100,200]); notif(b.cur?.activity||''); }
+        renderTimer();
+        return;
+    }
+
+    // Warning sounds
+    if (b.st==='active') {
+        if (!warned5 && b.rem<=300 && b.rem>290) { warned5=true; playPing(1); doVibrate([100]); }
+        if (!warned2 && b.rem<=120 && b.rem>110) { warned2=true; playPing(2); doVibrate([100,50,100]); }
+    }
+
+    // Update day progress bar
+    document.getElementById('day-bar-fill').style.width=(dayProgress()*100).toFixed(1)+'%';
+
+    // Fast-path: patch numbers only
+    if (b.st==='before') {
+        const el=document.getElementById('bc'); if(el) el.textContent=fmt(b.sec);
+        return;
+    }
+    if (b.st==='active') {
+        const cd=document.getElementById('cd'), pf=document.getElementById('pf'), sa=document.getElementById('sa');
+        const col=urgCol(b.rem), grd=urgGrad(b.rem), uc=urgClass(b.rem);
+        const urgent=b.rem<=120;
+        if(cd){ cd.textContent=fmt(b.rem); cd.style.color=col; cd.classList.toggle('urgent',urgent); }
+        if(pf){ pf.style.width=(b.prog*100).toFixed(1)+'%'; pf.style.background=grd; }
+        if(sa) sa.textContent=fmtAgo(b.elapsed);
+        // Re-render when urgency state changes
+        if ((b.rem<=300&&b.rem>298)||(b.rem<=120&&b.rem>118)) renderTimer();
+    }
+}
+
+function completeNow(curIdx) {
+    const nextIdx = curIdx + 1;
+    if (!schedule[nextIdx]) return;
+    const now = new Date();
+    const nowStr = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+    schedule[nextIdx] = {...schedule[nextIdx], time: nowStr};
+    persist(schedule);
+    lastIdx = -2;
+    playPing(1);
+    doVibrate([80, 40, 80]);
+    renderTimer();
+    toast(`✓ Iniciando: ${schedule[nextIdx].activity}`);
+}
+
+function startClock() {
+    if (timerID) clearInterval(timerID);
+    timerID = setInterval(tick, 1000);
+}
+
+function startHeaderClock() {
+    function updateClock() {
+        const n=new Date();
+        const s=`${pad2(n.getHours())}:${pad2(n.getMinutes())}`;
+        document.getElementById('hdr-clock').textContent=s;
+    }
+    updateClock();
+    if (clockID) clearInterval(clockID);
+    clockID = setInterval(updateClock, 10000);
+}
+
+// ════════════════════════════════════
+// WAKE LOCK
+// ════════════════════════════════════
+async function acquireWakeLock() {
+    if (!('wakeLock' in navigator)) return;
+    try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        document.getElementById('wake-dot').classList.add('on');
+        wakeLock.addEventListener('release', () => {
+            document.getElementById('wake-dot').classList.remove('on');
+            wakeLock=null;
+        });
+    } catch {}
+}
+document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState==='visible' && !wakeLock) await acquireWakeLock();
+});
+
+// ════════════════════════════════════
+// URL HASH SHARING
+// ════════════════════════════════════
+function shareSchedule() {
+    if (!schedule.length) { toast('Nenhuma agenda para compartilhar'); return; }
+    try {
+        const data = btoa(encodeURIComponent(JSON.stringify(schedule)));
+        const url  = `${location.origin}${location.pathname}#s=${data}`;
+        if (navigator.clipboard?.writeText) {
+            navigator.clipboard.writeText(url).then(()=>toast('Link copiado! 🔗'));
+        } else {
+            prompt('Copie o link:', url);
+        }
+    } catch { toast('Erro ao gerar link'); }
+}
+
+function loadFromHash() {
+    const hash = location.hash;
+    if (!hash.startsWith('#s=')) return false;
+    try {
+        const data  = JSON.parse(decodeURIComponent(atob(hash.slice(3))));
+        if (Array.isArray(data) && data.length) {
+            showPreview(data);
+            history.replaceState(null,'',location.pathname);
+            return true;
+        }
+    } catch {}
+    return false;
+}
+
+// ════════════════════════════════════
+// FILE UPLOAD
+// ════════════════════════════════════
+document.getElementById('file-input').addEventListener('change', function(e) {
+    const f=e.target.files[0]; if(!f) return;
+    const r=new FileReader();
+    r.onload = ev => {
+        const url=ev.target.result;
+        imgMime=f.type; imgB64=url.split(',')[1];
+        document.getElementById('prev-img').src=url;
+        document.getElementById('img-prev').classList.add('on');
+        const hasKey=!!getKey();
+        document.getElementById('analyze-wrap').style.display=hasKey?'block':'none';
+        if(!hasKey) toast('Configure a chave Gemini API nas ⚙️ configurações');
+    };
+    r.readAsDataURL(f);
+});
+
+const ua=document.getElementById('upload-area');
+ua.addEventListener('dragover', e=>{ e.preventDefault(); ua.classList.add('over'); });
+ua.addEventListener('dragleave', ()=>ua.classList.remove('over'));
+ua.addEventListener('drop', e=>{
+    e.preventDefault(); ua.classList.remove('over');
+    const f=e.dataTransfer.files[0];
+    if(f?.type.startsWith('image/')){
+        document.getElementById('file-input').files=e.dataTransfer.files;
+        document.getElementById('file-input').dispatchEvent(new Event('change'));
+    }
+});
+
+// ════════════════════════════════════
+// OCR — GEMINI
+// ════════════════════════════════════
+async function analyzeImage() {
+    if(!imgB64){ toast('Nenhuma imagem selecionada'); return; }
+    const key=getKey();
+    if(!key){ toast('Configure a chave Gemini API primeiro'); nav('settings'); return; }
+    showLoad('Analisando imagem com IA...');
+    try {
+        const res=await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`,
+            { method:'POST', headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({ contents:[{parts:[
+                {text:`Analise esta imagem de um planejamento diário (pode ser escrito à mão).
+Extraia TODOS os horários e atividades visíveis.
+Retorne APENAS a lista sem explicações. Formato exato, um item por linha:
+HH:MM - Atividade
+Use horário em 24h.`},
+                {inline_data:{mime_type:imgMime,data:imgB64}}
+              ]}], generationConfig:{temperature:0.1,maxOutputTokens:600} })
+            }
+        );
+        if(!res.ok){ const e=await res.json(); throw new Error(e.error?.message||`HTTP ${res.status}`); }
+        const d=await res.json();
+        const txt=d.candidates?.[0]?.content?.parts?.[0]?.text||'';
+        if(!txt) throw new Error('Resposta vazia da IA');
+        const items=parse(txt);
+        if(!items.length) throw new Error('Não consegui extrair horários. Tente digitar manualmente.');
+        showPreview(items);
+    } catch(err){ toast('Erro: '+err.message); }
+    finally { hideLoad(); }
+}
+
+// ════════════════════════════════════
+// SETUP ACTIONS
+// ════════════════════════════════════
+function confirmManual() {
+    const txt=document.getElementById('manual-input').value.trim();
+    if(!txt){ toast('Digite sua agenda primeiro'); return; }
+    const items=parse(txt);
+    if(!items.length){ toast('Formato inválido. Ex: 10:00 - Acordar'); return; }
+    showPreview(items);
+}
+function loadExample() {
+    document.getElementById('manual-input').value=SAMPLE.map(s=>`${s.time} - ${s.activity}`).join('\n');
+    toast('Exemplo carregado!');
+}
+function loadExampleDirect() { showPreview([...SAMPLE]); }
+function loadYesterday() {
+    const y=getYesterday();
+    if(!y){ toast('Nenhuma agenda de ontem'); return; }
+    document.getElementById('manual-input').value=y.map(s=>`${s.time} - ${s.activity}`).join('\n');
+    toast('Agenda de ontem carregada!');
+}
+
+// ════════════════════════════════════
+// TEMPLATES
+// ════════════════════════════════════
+function getTemplates() {
+    try { return JSON.parse(localStorage.getItem('df_tpls')||'[]'); } catch { return []; }
+}
+function saveTemplates(tpls) { localStorage.setItem('df_tpls', JSON.stringify(tpls)); }
+
+function saveAsTemplate() {
+    if(!pending.length){ toast('Agenda vazia'); return; }
+    const name = prompt('Nome do template (ex: Dia Normal, Segunda-feira):');
+    if(!name||!name.trim()) return;
+    const tpls = getTemplates();
+    tpls.unshift({name:name.trim(), items:[...pending], savedAt:Date.now()});
+    saveTemplates(tpls);
+    renderTemplates();
+    toast(`Template "${name.trim()}" salvo! 📌`);
+}
+
+function loadTemplate(idx) {
+    const tpls=getTemplates();
+    if(!tpls[idx]) return;
+    showPreview(tpls[idx].items);
+    toast(`Template "${tpls[idx].name}" carregado!`);
+}
+
+function deleteTemplate(idx) {
+    const tpls=getTemplates();
+    const name=tpls[idx]?.name||'';
+    tpls.splice(idx,1);
+    saveTemplates(tpls);
+    renderTemplates();
+    toast(`Template "${name}" removido`);
+}
+
+function renderTemplates() {
+    const list = document.getElementById('tpl-list');
+    const sec  = document.getElementById('tpl-section');
+    if(!list) return;
+    const tpls = getTemplates();
+    if(!tpls.length) {
+        sec.style.display='none';
+        return;
+    }
+    sec.style.display='block';
+    list.innerHTML = tpls.map((t,i)=>{
+        const age = Date.now()-t.savedAt;
+        const days = Math.floor(age/86400000);
+        const meta = `${t.items.length} atividades · ${days===0?'hoje':days===1?'ontem':`${days} dias atrás`}`;
+        return `<div class="tpl-item" onclick="loadTemplate(${i})">
+            <div class="tpl-icon">📋</div>
+            <div class="tpl-info">
+                <div class="tpl-name">${esc(t.name)}</div>
+                <div class="tpl-meta">${meta}</div>
+            </div>
+            <button class="tpl-del" onclick="event.stopPropagation();deleteTemplate(${i})" title="Remover">✕</button>
+        </div>`;
+    }).join('');
+}
+
+// ════════════════════════════════════
+// PREVIEW
+// ════════════════════════════════════
+function showPreview(items) {
+    pending=items.map(i=>({...i}));
+    renderPreview();
+    nav('preview');
+}
+function renderPreview() {
+    document.getElementById('prev-count').textContent=`${pending.length} itens`;
+    document.getElementById('preview-body').innerHTML=pending.map((s,i)=>`
+        <div class="prev-item">
+            <div class="prev-time">${s.time}</div>
+            <input class="prev-act" value="${esc(s.activity)}"
+                onchange="pending[${i}].activity=this.value" placeholder="Atividade">
+            <button class="prev-del" onclick="delItem(${i})">✕</button>
+        </div>`).join('');
+}
+function delItem(i){ pending.splice(i,1); renderPreview(); }
+function toggleAddForm(){
+    const f=document.getElementById('add-form');
+    f.classList.toggle('on');
+    if(f.classList.contains('on')) document.getElementById('new-time').focus();
+}
+function submitAdd(){
+    const t=document.getElementById('new-time').value;
+    const a=document.getElementById('new-act').value.trim();
+    if(!t||!a){ toast('Preencha horário e atividade'); return; }
+    pending.push({time:t,activity:a});
+    pending.sort((a,b)=>toMin(a.time)-toMin(b.time));
+    renderPreview();
+    document.getElementById('new-time').value='';
+    document.getElementById('new-act').value='';
+    document.getElementById('add-form').classList.remove('on');
+}
+function savePreview(){
+    if(!pending.length){ toast('Agenda vazia'); return; }
+    persist(pending);
+    lastIdx=-2; warned5=false; warned2=false; confFired=false;
+    nav('timer'); toast('Agenda salva! ✓');
+}
+
+// ════════════════════════════════════
+// SETTINGS
+// ════════════════════════════════════
+function saveKey(){
+    const k=document.getElementById('api-key-input').value.trim();
+    if(!k){ toast('Digite uma chave válida'); return; }
+    storeKey(k); toast('Chave salva! ✓');
+}
+function clearAll(){
+    if(!confirm('Limpar a agenda de hoje?')) return;
+    schedule=[]; localStorage.removeItem('df_sched');
+    lastIdx=-2; confFired=false;
+    nav('timer'); toast('Agenda apagada');
+}
+async function reqNotif(){
+    if(!('Notification' in window)){ toast('Notificações não suportadas'); return; }
+    const p=await Notification.requestPermission();
+    toast(p==='granted'?'Notificações ativadas! ✓':'Permissão negada');
+}
+function testW(min){
+    if(min===5){ playPing(1); doVibrate([100]); toast('🟡 Aviso: 5 min para próxima atividade'); }
+    else if(min===2){ playPing(2); doVibrate([100,50,100]); toast('🟠 Aviso: 2 min para próxima atividade'); }
+    else { playSwap(); doVibrate([200,100,200]); toast('🔔 Troca de atividade!'); }
+}
+
+// ════════════════════════════════════
+// AUDIO
+// ════════════════════════════════════
+function mkCtx(){ return new (window.AudioContext||window.webkitAudioContext)(); }
+function tone(freq,start,dur,ctx,vol=0.28){
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value=freq; o.type='sine';
+    g.gain.setValueAtTime(0,ctx.currentTime+start);
+    g.gain.linearRampToValueAtTime(vol,ctx.currentTime+start+0.04);
+    g.gain.linearRampToValueAtTime(0,ctx.currentTime+start+dur);
+    o.start(ctx.currentTime+start); o.stop(ctx.currentTime+start+dur+0.05);
+}
+function playSwap(){ try{ const c=mkCtx(); tone(880,0,.12,c); tone(1100,.15,.25,c); }catch{} }
+function playPing(n){ try{ const c=mkCtx(); for(let i=0;i<n;i++) tone(660,i*.28,.18,c,.2); }catch{} }
+function doVibrate(p){ try{ navigator.vibrate?.(p); }catch{} }
+function notif(act){
+    if(Notification.permission==='granted') new Notification('DayFlow',{body:'▶ '+act,silent:true});
+}
+
+// ════════════════════════════════════
+// CONFETTI
+// ════════════════════════════════════
+function launchConfetti(){
+    const wrap=document.getElementById('conf-wrap');
+    const cols=['#6366f1','#8b5cf6','#10b981','#f59e0b','#ef4444','#ec4899','#06b6d4'];
+    for(let i=0;i<80;i++){
+        const el=document.createElement('div'); el.className='conf';
+        const size=5+Math.random()*8;
+        el.style.cssText=`left:${Math.random()*100}vw;width:${size}px;height:${size}px;background:${cols[Math.floor(Math.random()*cols.length)]};border-radius:${Math.random()>.5?'50%':'3px'};animation-duration:${2.5+Math.random()*2.5}s;animation-delay:${Math.random()*2}s;`;
+        wrap.appendChild(el);
+    }
+    setTimeout(()=>{ wrap.innerHTML=''; },7000);
+}
+
+// ════════════════════════════════════
+// TOUCH SWIPE — right edge to go back
+// ════════════════════════════════════
+(function() {
+    let x0 = 0;
+    document.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; }, {passive:true});
+    document.addEventListener('touchend', e => {
+        const dx = e.changedTouches[0].clientX - x0;
+        if (dx > 70 && x0 < 50) {
+            const cur = document.querySelector('.screen.active')?.id;
+            if (cur && cur !== 'screen-timer') nav('timer');
+        }
+    }, {passive:true});
+})();
+
+// ════════════════════════════════════
+// KEYBOARD SHORTCUTS
+// ════════════════════════════════════
+document.addEventListener('keydown', e => {
+    if (e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
+    const cur = document.querySelector('.screen.active')?.id;
+    if (cur==='screen-timer') {
+        if (e.key==='e'||e.key==='E') nav('setup');
+        if (e.key==='c'||e.key==='C') toggleCompact();
+        if (e.key==='s'||e.key==='S') {
+            const hdr=document.getElementById('sched-hdr'); if(hdr) togSched(hdr);
+        }
+        if (e.key===' ') {
+            e.preventDefault();
+            const hdr=document.getElementById('sched-hdr'); if(hdr) togSched(hdr);
+        }
+    }
+    if (e.key==='Escape') nav('timer');
+});
+
+// ════════════════════════════════════
+// UI HELPERS
+// ════════════════════════════════════
+function showLoad(txt){ document.getElementById('overlay-txt').textContent=txt; document.getElementById('overlay').classList.add('on'); }
+function hideLoad(){ document.getElementById('overlay').classList.remove('on'); }
+let _tt;
+function toast(msg){
+    const el=document.getElementById('toast');
+    el.textContent=msg; el.classList.add('on');
+    clearTimeout(_tt); _tt=setTimeout(()=>el.classList.remove('on'),3500);
+}
+
+// ════════════════════════════════════
+// BOOT
+// ════════════════════════════════════
+(function init(){
+    // Header date
+    const d=new Date();
+    document.getElementById('hdr-date').textContent=
+        d.toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'});
+
+    loadStorage();
+
+    // Load from shared URL hash if present
+    if (!loadFromHash()) {
+        renderTimer();
+    }
+
+    startClock();
+    startHeaderClock();
+    acquireWakeLock();
+})();
+</script>
+</body>
+</html>

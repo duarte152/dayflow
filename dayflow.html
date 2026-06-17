@@ -278,13 +278,12 @@
             <div class="upload-area" id="upload-area">
                 <div class="upload-icon">🖼️</div>
                 <div class="upload-title">Foto do planejamento</div>
-                <div class="upload-hint" style="margin-bottom:16px">Selecione como quer enviar a imagem</div>
-                <div style="display:flex;gap:10px;justify-content:center">
-                    <button onclick="event.stopPropagation();document.getElementById('file-camera').click()" style="flex:1;background:var(--acc);border:none;border-radius:11px;padding:11px;color:#fff;font-size:13px;font-weight:600;cursor:pointer">📷 Câmera</button>
-                    <button onclick="event.stopPropagation();document.getElementById('file-gallery').click()" style="flex:1;background:var(--surf2);border:1px solid var(--bord);border-radius:11px;padding:11px;color:var(--txt);font-size:13px;font-weight:600;cursor:pointer">🖼 Galeria / Arquivo</button>
+                <div class="upload-hint" style="margin-bottom:16px">Selecione como quer enviar</div>
+                <div style="display:flex;gap:10px">
+                    <label for="file-camera" style="flex:1;background:var(--acc);border:none;border-radius:11px;padding:11px;color:#fff;font-size:13px;font-weight:600;cursor:pointer;text-align:center;display:block">📷 Câmera</label>
+                    <label for="file-gallery" style="flex:1;background:var(--surf2);border:1px solid var(--bord);border-radius:11px;padding:11px;color:var(--txt);font-size:13px;font-weight:600;cursor:pointer;text-align:center;display:block">🖼 Galeria</label>
                 </div>
             </div>
-            <input type="file" id="file-input" accept="image/*" style="display:none">
             <input type="file" id="file-camera"  accept="image/*" capture="environment" style="display:none">
             <input type="file" id="file-gallery" accept="image/*" style="display:none">
             <div class="img-prev" id="img-prev"><img id="prev-img" src="" alt=""></div>

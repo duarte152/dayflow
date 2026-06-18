@@ -220,6 +220,20 @@
         .when-opt { flex: 1; background: var(--surf); border: 1px solid var(--bord); border-radius: 10px; padding: 10px; font-size: 13px; font-weight: 600; color: var(--txt2); cursor: pointer; transition: all .15s; }
         .when-opt.active { background: var(--acc-dim); border-color: var(--acc); color: var(--acc); }
 
+        /* ── Checklist / avaliação do dia ── */
+        .sched-check { margin-left: 4px; width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--bord); background: transparent; color: var(--txt3); font-size: 13px; font-weight: 800; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: all .15s; }
+        .sched-check:hover { border-color: var(--txt2); }
+        .sched-check.done { background: rgba(16,185,129,.16); border-color: var(--ok); color: var(--ok); }
+        .sched-check.miss { background: rgba(239,68,68,.14); border-color: var(--hot); color: var(--hot); }
+        .sched-item.is-end .sched-act { color: var(--txt3); font-style: italic; letter-spacing: 2px; }
+        .sched-item.done-row .sched-act { text-decoration: line-through; color: var(--txt3); }
+        .review-stats { display: flex; gap: 8px; margin-top: 14px; }
+        .review-stats > div { flex: 1; background: var(--surf2); border-radius: 12px; padding: 10px 4px; }
+        .rv-n { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+        .rv-l { font-size: 10px; color: var(--txt3); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+        .end-card { display: flex; align-items: center; gap: 12px; }
+        .end-badge { background: var(--surf2); border-radius: 11px; padding: 9px 13px; font-size: 14px; font-weight: 700; color: var(--txt2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
         /* ── Wake lock dot (subtle) ── */
         .wake-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--txt3); display: none; }
         .wake-dot.on { display: block; background: var(--ok); }
@@ -280,6 +294,12 @@
                 <button class="btn btn-s" onclick="loadYesterday()">♻️ Usar agenda de ontem</button>
             </div>
 
+            <div id="carry-section" style="display:none">
+                <div class="field-lbl" style="margin-bottom:8px">⭕ Não concluídas — trazer de volta</div>
+                <div class="tpl-list" id="carry-list"></div>
+                <button class="btn btn-s btn-sm" style="width:auto;margin-top:8px" onclick="addAllCarry()">+ Adicionar todas</button>
+            </div>
+
             <div class="divider" id="photo-divider">criar do zero</div>
 
             <div class="upload-area" id="upload-area">
@@ -303,16 +323,17 @@
                 <textarea id="manual-input" rows="9"
                     placeholder="10:00 - Acordar&#10;10:30 - Café da manhã&#10;11:00 - Trabalho&#10;13:00 - Almoço&#10;14:00 - Reunião&#10;17:00 - Academia&#10;19:00 - Jantar&#10;22:00 - Dormir"></textarea>
             </div>
+            <button class="btn btn-p" id="apply-btn" onclick="applyText()" style="display:none">💾 Salvar e aplicar agora</button>
             <div style="display:flex;gap:9px">
                 <button class="btn btn-s" onclick="loadExample()" style="flex:1">📋 Exemplo</button>
-                <button class="btn btn-p" onclick="confirmManual()" style="flex:2">✓ Confirmar</button>
+                <button class="btn btn-p" id="confirm-btn" onclick="confirmManual()" style="flex:2">✓ Confirmar</button>
             </div>
 
             <div class="tip">
                 <strong>Formatos aceitos por linha:</strong><br>
                 <code>10:00 - Acordar</code> · <code>10h30 Reunião</code> · <code>14:00: Almoço</code><br><br>
-                Para análise de foto, configure a chave Gemini API (grátis) nas ⚙️ configurações.
-                Ou compartilhe uma agenda pelo link 🔗 do timer.
+                <strong>O início de uma atividade é o fim da anterior.</strong> A última roda até a meia-noite e para sozinha — ou adicione uma linha <code>23:30 - FIM</code> para o app parar no horário que você quiser.<br><br>
+                Edite este texto a qualquer momento e toque em <strong>Salvar e aplicar</strong> para corrigir o timer na hora.
             </div>
         </div>
     </div>
@@ -456,12 +477,14 @@ let schedMeta = null, lastStatus = null, pendingWhen = 'today';
 function dateStr(d=new Date()){ return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
 function addDays(n, d=new Date()){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
 
-function saveSchedule(items, forDate) {
-    // arquiva a agenda anterior para "reutilizar"
-    const prev = localStorage.getItem('df_sched');
-    if (prev) { try { if (JSON.parse(prev).items?.length) localStorage.setItem('df_sched_prev', prev); } catch {} }
+function saveSchedule(items, forDate, archivePrev=true) {
+    // arquiva a agenda anterior para "reutilizar" (só ao criar uma agenda nova)
+    if (archivePrev) {
+        const prev = localStorage.getItem('df_sched');
+        if (prev) { try { if (JSON.parse(prev).items?.length) localStorage.setItem('df_sched_prev', prev); } catch {} }
+    }
     schedule = items;
-    schedMeta = { items, createdAt: Date.now(), forDate };
+    schedMeta = { items, createdAt: Date.now(), forDate };   // agenda nova → não está "finalizada"
     localStorage.setItem('df_sched', JSON.stringify(schedMeta));
 }
 function touchSchedule() {
@@ -477,6 +500,7 @@ function loadStorage() {
             schedule = d.items;
             // normaliza formato antigo {date,items} → recorrente ('daily')
             schedMeta = { items: d.items, createdAt: d.createdAt||Date.now(), forDate: d.forDate || 'daily' };
+            if (d.doneOn) schedMeta.doneOn = d.doneOn;
             localStorage.setItem('df_sched', JSON.stringify(schedMeta));
         } else { schedule=[]; schedMeta=null; }
     } catch { schedule=[]; schedMeta=null; }
@@ -552,21 +576,43 @@ function durLabel(fromTime, toTime) {
 // ════════════════════════════════════
 // BLOCK LOGIC
 // ════════════════════════════════════
+// Marcador de fim: uma linha "FIM" diz quando o dia termina.
+const isEnd = a => /^\s*(fim|final|fim do dia|encerrar|acabou)\s*$/i.test(a||'');
+// nº de atividades "de verdade" (exclui um FIM no final)
+function runnableLen() {
+    let n = schedule.length;
+    if (n && isEnd(schedule[n-1].activity)) n--;
+    return n;
+}
+// minuto em que o dia termina: hora do FIM, ou meia-noite (1440) se não houver
+function endMin() {
+    const n = schedule.length;
+    if (n && isEnd(schedule[n-1].activity)) return toMin(schedule[n-1].time);
+    return 1440;
+}
+const minToStr = m => `${pad2(Math.floor(m/60)%24)}:${pad2(Math.round(m)%60)}`;
+
 function block() {
     if (!schedule.length) return {st:'empty'};
+    if (schedMeta?.doneOn === dateStr()) return {st:'done', idx:-3};   // dia finalizado manualmente
     const now = nowMin();
+    const len = runnableLen();
+    const end = endMin();
     let idx = -1;
-    for (let i=0; i<schedule.length; i++) {
+    for (let i=0; i<len; i++) {
         if (now >= toMin(schedule[i].time)) idx=i; else break;
     }
     if (idx===-1) return {st:'before', next:schedule[0], sec:Math.max(0,(toMin(schedule[0].time)-now)*60), idx:-1};
-    if (idx===schedule.length-1) return {st:'last', cur:schedule[idx], idx};
-    const cur=schedule[idx], next=schedule[idx+1];
-    const tot = (toMin(next.time)-toMin(cur.time))*60;
-    const rem = Math.max(0,(toMin(next.time)-now)*60);
+    if (now >= end) return {st:'done', idx:-3};                        // passou do FIM
+    const cur = schedule[idx];
+    const isLast = idx===len-1;
+    const boundary = isLast ? end : toMin(schedule[idx+1].time);  // minuto de término do bloco atual
+    const next = isLast ? null : schedule[idx+1];
+    const tot = (boundary - toMin(cur.time))*60;
+    const rem = Math.max(0,(boundary - now)*60);
     const elapsed = (now - toMin(cur.time))*60;
     const prog = tot>0 ? Math.min(1,1-rem/tot) : 1;
-    return {st:'active', cur, next, idx, rem, tot, prog, elapsed};
+    return {st:'active', cur, next, idx, rem, tot, prog, elapsed, isLast, boundary};
 }
 
 function dayProgress() {
@@ -611,7 +657,10 @@ function resetSetup() {
     if(fc) fc.value=''; if(fg) fg.value='';
     document.getElementById('manual-input').value=schedule.map(s=>`${s.time} - ${s.activity}`).join('\n');
     document.getElementById('yesterday-btn').style.display=getYesterday()?'block':'none';
+    // "Salvar e aplicar" só aparece quando já existe agenda (modo edição)
+    document.getElementById('apply-btn').style.display=schedule.length?'block':'none';
     renderTemplates();
+    renderCarry();
 }
 
 function toggleCompact() {
@@ -713,48 +762,31 @@ function renderTimer() {
         return;
     }
 
-    if (b.st==='last') {
-        body.innerHTML=`
-            <div class="card card-hero normal slide-in">
-                <div class="chip"><span class="live-dot"></span>Agora</div>
-                <div class="act-name">${esc(b.cur.activity)}</div>
-                <div class="act-sub">Início às ${b.cur.time}</div>
-                <div class="cd" style="color:var(--txt3)">∞</div>
-                <div class="cd-sub">última atividade do dia</div>
-            </div>
-            <div class="card slide-in" style="text-align:center;padding:20px">
-                <div style="font-size:34px;margin-bottom:7px">🎉</div>
-                <div style="font-weight:700;font-size:16px">Dia concluído!</div>
-                <div style="font-size:12px;color:var(--txt3);margin-top:3px">Todas as atividades finalizadas</div>
-            </div>
-            ${schedList(b)}`;
+    if (b.st==='done') {
+        dbf.style.width='100%';
+        body.innerHTML = reviewHtml();
         if (!confFired) { confFired=true; launchConfetti(); }
         return;
     }
 
-    // Active block
+    // Active block (b.next === null → última atividade rodando até o fim do dia)
     const uc  = urgClass(b.rem);
     const col = urgCol(b.rem);
     const grd = urgGrad(b.rem);
     const pct = (b.prog*100).toFixed(1);
     const urgent = b.rem<=120;
+    const boundaryStr = minToStr(b.boundary);
+    const endIsMidnight = b.isLast && endMin()===1440;
 
+    const warnTarget = b.next ? esc(b.next.activity) : 'o fim do dia';
     const warnHtml = b.rem<=300 ? `
         <div class="warn-banner ${b.rem<=120?'r':'y'} on">
             ${b.rem<=120?'🔴':'🟡'}
-            <span>${b.rem<=120?'Menos de 2 min':'Menos de 5 min'} para <strong>${esc(b.next.activity)}</strong></span>
+            <span>${b.rem<=120?'Menos de 2 min':'Menos de 5 min'} para <strong>${warnTarget}</strong></span>
         </div>` : '';
 
-    body.innerHTML=`
-        ${warnHtml}
-        <div class="card card-hero ${uc} slide-in">
-            <div class="chip"><span class="live-dot"></span>Agora</div>
-            <div class="act-name">${esc(b.cur.activity)}</div>
-            <div class="act-sub">Início às ${b.cur.time} · ${fmtAgo(b.elapsed)}</div>
-            <div class="prog-bar"><div class="prog-fill" id="pf" style="width:${pct}%;background:${grd}"></div></div>
-            <div class="cd ${urgent?'urgent':''}" id="cd" style="color:${col}">${fmt(b.rem)}</div>
-            <div class="cd-sub">restando até ${b.next.time}</div>
-        </div>
+    // bloco "a seguir" OU, na última atividade, botão de finalizar
+    const tailHtml = b.next ? `
         <div class="card next-card slide-in">
             <div class="next-badge">${b.next.time}</div>
             <div class="next-info">
@@ -765,7 +797,30 @@ function renderTimer() {
         </div>
         <button class="complete-btn slide-in" onclick="completeNow(${b.idx})">
             ✓ &nbsp;Completar agora · iniciar <strong>${esc(b.next.activity)}</strong>
-        </button>
+        </button>` : `
+        <div class="card end-card slide-in">
+            <div class="end-badge">${boundaryStr}</div>
+            <div class="next-info">
+                <div class="next-chip">${endIsMidnight?'Termina à meia-noite':'Fim do dia'}</div>
+                <div class="next-name">Última atividade do dia</div>
+                <div class="next-in">para sozinho ${endIsMidnight?'à meia-noite':`às ${boundaryStr}`}</div>
+            </div>
+        </div>
+        <button class="complete-btn slide-in" onclick="finishDay()">
+            🌙 &nbsp;Finalizar dia agora
+        </button>`;
+
+    body.innerHTML=`
+        ${warnHtml}
+        <div class="card card-hero ${uc} slide-in">
+            <div class="chip"><span class="live-dot"></span>Agora</div>
+            <div class="act-name">${esc(b.cur.activity)}</div>
+            <div class="act-sub">Início às ${b.cur.time} · ${fmtAgo(b.elapsed)}</div>
+            <div class="prog-bar"><div class="prog-fill" id="pf" style="width:${pct}%;background:${grd}"></div></div>
+            <div class="cd ${urgent?'urgent':''}" id="cd" style="color:${col}">${fmt(b.rem)}</div>
+            <div class="cd-sub">restando até ${boundaryStr}</div>
+        </div>
+        ${tailHtml}
         ${schedList(b)}`;
 }
 
@@ -774,19 +829,79 @@ function schedList(b, markPast=true) {
     const now = nowMin();
     const items = schedule.map((s,i)=>{
         const next = schedule[i+1];
-        const dur = next ? durLabel(s.time, next.time) : '';
+        const end  = isEnd(s.activity);
+        const dur  = (next && !end) ? durLabel(s.time, next.time) : '';
         const cur  = b.idx===i;
         const past = markPast && !cur && now>toMin(s.time);
-        return `<div class="sched-item ${cur?'cur':''} ${past?'past':''}">
+        const checkCls = s.done===true ? 'done' : s.done===false ? 'miss' : '';
+        const mark = s.done===true ? '✓' : s.done===false ? '✕' : '';
+        const check = end ? '' : `<button class="sched-check ${checkCls}" onclick="event.stopPropagation();cycleDone(${i})" title="Concluído / não concluído">${mark}</button>`;
+        return `<div class="sched-item ${cur?'cur':''} ${past?'past':''} ${end?'is-end':''} ${s.done===true?'done-row':''}">
             <div class="sched-time">${s.time}</div>
             <div class="sched-dot"></div>
-            <div class="sched-act">${esc(s.activity)}</div>
+            <div class="sched-act">${end?'— FIM —':esc(s.activity)}</div>
             ${dur?`<div class="sched-dur">${dur}</div>`:''}
+            ${check}
         </div>`;
     }).join('');
     return `
         <div class="sched-toggle open" id="sched-hdr" onclick="togSched(this)">Agenda do dia <span>▴</span></div>
         <div class="sched-list open" id="sched-body">${items}</div>`;
+}
+
+// ════════════════════════════════════
+// CHECKLIST / AVALIAÇÃO DO DIA
+// ════════════════════════════════════
+function cycleDone(i) {
+    const cur = schedule[i].done;
+    schedule[i].done = cur===undefined ? true : cur===true ? false : undefined;
+    touchSchedule();
+    doVibrate([30]);
+    renderTimer();
+}
+function reviewHtml() {
+    const len = runnableLen();
+    let done=0, miss=0, pend=0;
+    for (let i=0;i<len;i++){ const d=schedule[i].done; if(d===true)done++; else if(d===false)miss++; else pend++; }
+    const carryN = len - done;   // tudo que não foi concluído
+    return `
+        <div class="card slide-in" style="text-align:center;padding:22px">
+            <div style="font-size:34px;margin-bottom:6px">🌙</div>
+            <div style="font-weight:700;font-size:17px">Dia concluído</div>
+            <div style="font-size:12px;color:var(--txt3);margin-top:4px">Avalie o que rolou — toque em cada item</div>
+            <div class="review-stats">
+                <div><div class="rv-n" style="color:var(--ok)">${done}</div><div class="rv-l">feitas</div></div>
+                <div><div class="rv-n" style="color:var(--hot)">${miss}</div><div class="rv-l">não feitas</div></div>
+                <div><div class="rv-n" style="color:var(--txt3)">${pend}</div><div class="rv-l">pendentes</div></div>
+            </div>
+        </div>
+        ${schedList({idx:-1}, false)}
+        <button class="btn btn-p" onclick="carryOver()">♻️ Levar não concluídas para amanhã (${carryN})</button>
+        <button class="btn btn-s" onclick="reopenDay()">↩︎ Reabrir dia</button>`;
+}
+function finishDay() {
+    if (!schedMeta) return;
+    schedMeta.doneOn = dateStr();
+    localStorage.setItem('df_sched', JSON.stringify(schedMeta));
+    lastIdx=-3; lastStatus=null;
+    doVibrate([200,100,200]);
+    renderTimer();
+}
+function reopenDay() {
+    if (!schedMeta) return;
+    delete schedMeta.doneOn;
+    localStorage.setItem('df_sched', JSON.stringify(schedMeta));
+    lastIdx=-2; lastStatus=null;
+    renderTimer();
+    toast('Dia reaberto');
+}
+function carryOver() {
+    const len = runnableLen();
+    const pend = [];
+    for (let i=0;i<len;i++){ if(schedule[i].done!==true) pend.push({time:schedule[i].time, activity:schedule[i].activity}); }
+    if (!pend.length){ toast('Tudo concluído! Nada para levar 🎉'); return; }
+    localStorage.setItem('df_carry', JSON.stringify({fromDate:dateStr(), items:pend}));
+    toast(`${pend.length} pendência${pend.length>1?'s':''} guardada${pend.length>1?'s':''} para amanhã ♻️`);
 }
 
 function togSched(hdr) {
@@ -1040,7 +1155,7 @@ async function analyzeImage() {
                 const items = parse(txt);
                 if(!items.length) throw new Error('Não consegui extrair horários. Tente digitar manualmente.');
                 hideLoad();
-                showPreview(items);
+                ocrDone(items);
                 return;
             } catch(err) {
                 const fatal = !/quota|resource.exhausted|not found|deprecated|unavailable|500|503|429/i.test(err.message);
@@ -1057,8 +1172,7 @@ async function analyzeImage() {
         const items = parse(txt);
         if(!items.length) throw new Error('OCR não reconheceu horários. Tente digitar manualmente.');
         hideLoad();
-        showPreview(items);
-        toast('✓ Extraído via OCR alternativo');
+        ocrDone(items, 'OCR alternativo');
         return;
     } catch(err) {
         hideLoad();
@@ -1075,6 +1189,77 @@ function confirmManual() {
     const items=parse(txt);
     if(!items.length){ toast('Formato inválido. Ex: 10:00 - Acordar'); return; }
     showPreview(items);
+}
+
+// OCR concluído → joga o resultado no texto editável (não pula pro preview)
+function ocrDone(items, src) {
+    document.getElementById('manual-input').value = items.map(s=>`${s.time} - ${s.activity}`).join('\n');
+    document.getElementById('img-prev').classList.remove('on');
+    document.getElementById('analyze-wrap').style.display='none';
+    document.getElementById('apply-btn').style.display=schedule.length?'block':'none';
+    toast(`✓ ${items.length} horários extraídos${src?` (${src})`:''} — revise e confirme`);
+    document.getElementById('manual-input').scrollIntoView({behavior:'smooth', block:'center'});
+}
+
+// Edição rápida: aplica o texto AO VIVO mantendo o forDate e os checks já marcados
+function applyText() {
+    const txt=document.getElementById('manual-input').value.trim();
+    if(!txt){ toast('Digite sua agenda primeiro'); return; }
+    const items=parse(txt);
+    if(!items.length){ toast('Formato inválido. Ex: 10:00 - Acordar'); return; }
+    // preserva o estado de conclusão das atividades que continuam iguais
+    const prevDone={}; schedule.forEach(s=>{ if(s.done!==undefined) prevDone[s.time+'|'+s.activity]=s.done; });
+    items.forEach(s=>{ const d=prevDone[s.time+'|'+s.activity]; if(d!==undefined) s.done=d; });
+    const forDate = schedMeta?.forDate || dateStr();
+    saveSchedule(items, forDate, false);   // não arquiva: é edição do mesmo dia
+    lastIdx=-2; lastStatus=null; warned5=false; warned2=false; confFired=false;
+    nav('timer');
+    toast('Agenda atualizada ✓');
+}
+
+// ── Pendências do dia anterior (carryover) ──
+function getCarry() {
+    try { const c=JSON.parse(localStorage.getItem('df_carry')||'null'); return c?.items?.length ? c : null; }
+    catch { return null; }
+}
+function renderCarry() {
+    const sec=document.getElementById('carry-section'), list=document.getElementById('carry-list');
+    if(!sec) return;
+    const c=getCarry();
+    if(!c){ sec.style.display='none'; return; }
+    sec.style.display='block';
+    list.innerHTML=c.items.map((it,i)=>`
+        <div class="tpl-item" onclick="addCarry(${i})">
+            <div class="tpl-icon">⭕</div>
+            <div class="tpl-info">
+                <div class="tpl-name">${esc(it.activity)}</div>
+                <div class="tpl-meta">era ${it.time} · toque para adicionar ao texto</div>
+            </div>
+            <button class="tpl-del" onclick="event.stopPropagation();dismissCarry(${i})" title="Descartar">✕</button>
+        </div>`).join('');
+}
+function appendLine(time, activity) {
+    const ta=document.getElementById('manual-input');
+    ta.value=(ta.value.trim()?ta.value.trim()+'\n':'')+`${time} - ${activity}`;
+}
+function addCarry(i) {
+    const c=getCarry(); if(!c?.items[i]) return;
+    appendLine(c.items[i].time, c.items[i].activity);
+    dismissCarry(i);
+}
+function addAllCarry() {
+    const c=getCarry(); if(!c) return;
+    c.items.forEach(it=>appendLine(it.time, it.activity));
+    localStorage.removeItem('df_carry');
+    renderCarry();
+    toast('Pendências adicionadas ao texto');
+}
+function dismissCarry(i) {
+    const c=getCarry(); if(!c) return;
+    c.items.splice(i,1);
+    if(c.items.length) localStorage.setItem('df_carry', JSON.stringify(c));
+    else localStorage.removeItem('df_carry');
+    renderCarry();
 }
 function loadExample() {
     document.getElementById('manual-input').value=SAMPLE.map(s=>`${s.time} - ${s.activity}`).join('\n');

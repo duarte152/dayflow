@@ -1,5 +1,5 @@
 // DayFlow Service Worker — offline + atualização automática
-const CACHE = 'dayflow-v7';
+const CACHE = 'dayflow-v8';
 const ASSETS = [
   'dayflow.html',
   'manifest.webmanifest',

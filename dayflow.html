@@ -489,7 +489,7 @@ let confFired = false;
 let warned5 = false, warned2 = false;
 let compact = false;
 let schedMeta = null, lastStatus = null, pendingWhen = 'today';
-const APP_VERSION = '1.9';
+const APP_VERSION = '2.0';
 
 // ════════════════════════════════════
 // STORAGE  (agenda persiste entre dias)
@@ -1100,7 +1100,7 @@ function loadFromHash() {
 // ════════════════════════════════════
 // Backend = Firebase Realtime Database (REST). FB_URL é preenchido depois
 // que o usuário cria o projeto; até lá aceita uma URL colada nas configs.
-const FB_URL = '';
+const FB_URL = 'https://dayflow-6d384-default-rtdb.firebaseio.com';
 const getFbUrl   = () => (FB_URL || localStorage.getItem('df_fburl') || '').replace(/\/+$/,'');
 const getSyncCode = () => localStorage.getItem('df_synccode') || '';
 const dataUrl = code => { const b=getFbUrl(); return (b && code) ? `${b}/dayflow/${encodeURIComponent(code)}.json` : null; };

@@ -408,6 +408,10 @@
                 </div>
             </div>
             <div class="set-card">
+                <h3>🔄 Sincronizar entre aparelhos</h3>
+                <div id="sync-ui"></div>
+            </div>
+            <div class="set-card">
                 <h3>🔔 Notificações</h3>
                 <p>Receba alerta quando trocar de atividade.</p>
                 <button class="btn btn-s" onclick="reqNotif()">Ativar Notificações</button>
@@ -485,7 +489,7 @@ let confFired = false;
 let warned5 = false, warned2 = false;
 let compact = false;
 let schedMeta = null, lastStatus = null, pendingWhen = 'today';
-const APP_VERSION = '1.6';
+const APP_VERSION = '1.7';
 
 // ════════════════════════════════════
 // STORAGE  (agenda persiste entre dias)
@@ -502,13 +506,20 @@ function saveSchedule(items, forDate, archivePrev=true) {
     }
     schedule = items;
     schedMeta = { items, createdAt: Date.now(), forDate };   // agenda nova → não está "finalizada"
-    localStorage.setItem('df_sched', JSON.stringify(schedMeta));
+    saveMeta();
 }
 function touchSchedule() {
     // re-salva a agenda atual após edição in-place (sem arquivar nem mudar forDate)
     if (!schedMeta) return;
     schedMeta.items = schedule;
+    saveMeta();
+}
+// grava no localStorage com carimbo de tempo e dispara envio pra nuvem (se sync ativo)
+function saveMeta() {
+    if (!schedMeta) return;
+    schedMeta.updatedAt = Date.now();
     localStorage.setItem('df_sched', JSON.stringify(schedMeta));
+    syncPushDebounced();
 }
 function loadStorage() {
     try {
@@ -662,7 +673,7 @@ function nav(screen) {
     document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
     document.getElementById(`screen-${screen}`).classList.add('active');
     if (screen==='timer')    { lastIdx=-2; renderTimer(); }
-    if (screen==='settings') { const ks=getKeys(); [1,2,3].forEach(i=>{ document.getElementById(`api-key-${i}`).value=localStorage.getItem(`df_gemini${i}`)||''; }); }
+    if (screen==='settings') { const ks=getKeys(); [1,2,3].forEach(i=>{ document.getElementById(`api-key-${i}`).value=localStorage.getItem(`df_gemini${i}`)||''; }); renderSyncUI(); }
     if (screen==='setup')    { resetSetup(); }
 }
 
@@ -916,7 +927,7 @@ function reviewHtml() {
 function finishDay() {
     if (!schedMeta) return;
     schedMeta.doneOn = dateStr();
-    localStorage.setItem('df_sched', JSON.stringify(schedMeta));
+    saveMeta();
     lastIdx=-3; lastStatus=null;
     doVibrate([200,100,200]);
     renderTimer();
@@ -924,7 +935,7 @@ function finishDay() {
 function reopenDay() {
     if (!schedMeta) return;
     delete schedMeta.doneOn;
-    localStorage.setItem('df_sched', JSON.stringify(schedMeta));
+    saveMeta();
     lastIdx=-2; lastStatus=null;
     renderTimer();
     toast('Dia reaberto');
@@ -1064,6 +1075,12 @@ function shareSchedule() {
 
 function loadFromHash() {
     const hash = location.hash;
+    // link de sincronização: #sync=CODIGO → entra na agenda compartilhada
+    if (hash.startsWith('#sync=')) {
+        const code = decodeURIComponent(hash.slice(6)).trim();
+        history.replaceState(null,'',location.pathname);
+        if (code) { syncJoin(code); return true; }
+    }
     if (!hash.startsWith('#s=')) return false;
     try {
         const data  = JSON.parse(decodeURIComponent(atob(hash.slice(3))));
@@ -1074,6 +1091,169 @@ function loadFromHash() {
         }
     } catch {}
     return false;
+}
+
+// ════════════════════════════════════
+// SINCRONIZAÇÃO ENTRE APARELHOS (kvdb.io — autorizado pelo usuário)
+// Cada pessoa tem um "código" próprio (= bucket no kvdb). Roda 100% no
+// navegador do usuário. Dados locais são sempre a fonte; a nuvem é cópia.
+// ════════════════════════════════════
+const SYNC_BASE = 'https://kvdb.io';
+const getSyncCode = () => localStorage.getItem('df_synccode') || '';
+const syncUrl = () => { const c=getSyncCode(); return c ? `${SYNC_BASE}/${encodeURIComponent(c)}/sched` : null; };
+
+// cria um novo espaço de sync e devolve o código (o bucket)
+async function syncCreate() {
+    showLoad('Ativando sincronização...');
+    try {
+        const r = await fetch(SYNC_BASE, { method:'POST' });
+        if (!r.ok) throw new Error('HTTP '+r.status);
+        const bucket = (await r.text()).trim();
+        if (!bucket || bucket.length<6) throw new Error('resposta inválida do servidor');
+        localStorage.setItem('df_synccode', bucket);
+        await syncPush(true);              // sobe a agenda atual (se houver)
+        hideLoad();
+        renderSyncUI();
+        toast('Sincronização ativada! ✓');
+    } catch(e) {
+        hideLoad();
+        localStorage.removeItem('df_synccode');
+        toast('Não consegui ativar a sync: '+e.message);
+    }
+}
+
+// entra numa agenda existente pelo código
+async function syncJoin(code) {
+    code = (code||'').trim();
+    if (!code) { toast('Digite o código de sincronização'); return; }
+    showLoad('Conectando...');
+    localStorage.setItem('df_synccode', code);
+    const got = await syncPull(true);
+    hideLoad();
+    renderSyncUI();
+    if (got) toast('Conectado! Agenda sincronizada ✓');
+    else {
+        // sem dados ainda nesse código → sobe a agenda local pra "semear"
+        await syncPush(false);
+        toast('Conectado. Este código ainda não tinha agenda — enviei a sua.');
+    }
+}
+
+function syncDisable() {
+    localStorage.removeItem('df_synccode');
+    renderSyncUI();
+    toast('Sincronização desligada (sua agenda local continua aqui)');
+}
+
+let _pushTimer = null;
+function syncPushDebounced() {
+    if (!getSyncCode()) return;
+    clearTimeout(_pushTimer);
+    _pushTimer = setTimeout(() => syncPush(false), 1200);
+}
+
+async function syncPush(showErr) {
+    const url = syncUrl();
+    if (!url || !schedMeta) return false;
+    try {
+        const r = await fetch(url, { method:'PUT', body: JSON.stringify(schedMeta) });
+        if (!r.ok) throw new Error('HTTP '+r.status);
+        return true;
+    } catch(e) {
+        if (showErr) toast('Erro ao enviar pra nuvem: '+e.message);
+        return false;
+    }
+}
+
+let _pulling = false;
+async function syncPull(force) {
+    const url = syncUrl();
+    if (!url || _pulling) return false;
+    _pulling = true;
+    try {
+        const r = await fetch(url, { cache:'no-store' });
+        if (r.status === 404) { _pulling=false; return false; }   // sem dados nesse código
+        if (!r.ok) throw new Error('HTTP '+r.status);
+        const txt = await r.text();
+        _pulling = false;
+        if (!txt) return false;
+        const remote = JSON.parse(txt);
+        if (!remote || !Array.isArray(remote.items)) return false;
+        const localU  = schedMeta?.updatedAt || 0;
+        const remoteU = remote.updatedAt || 0;
+        if (force || remoteU > localU) {       // a versão mais nova vence
+            schedMeta = remote;
+            schedule  = remote.items;
+            localStorage.setItem('df_sched', JSON.stringify(schedMeta));
+            lastIdx = -2; lastStatus = null;
+            const cur = document.querySelector('.screen.active')?.id;
+            if (cur === 'screen-timer') renderTimer();
+            return true;
+        }
+        return false;
+    } catch(e) { _pulling=false; return false; }
+}
+
+// teste manual (o usuário roda no próprio navegador pra validar)
+async function syncTest() {
+    if (!getSyncCode()) { toast('Ative a sincronização primeiro'); return; }
+    showLoad('Testando ida e volta...');
+    const up = await syncPush(true);
+    const down = await syncPull(false);
+    hideLoad();
+    toast(up ? '✓ Sincronização funcionando! (enviou e leu)' : 'Falha no teste — veja a conexão');
+}
+
+let syncID = null;
+function startSync() {
+    if (syncID) clearInterval(syncID);
+    syncID = setInterval(() => {
+        if (getSyncCode() && document.visibilityState==='visible') syncPull(false);
+    }, 6000);
+}
+// puxa na hora ao voltar pro app
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState==='visible' && getSyncCode()) syncPull(false);
+});
+
+function renderSyncUI() {
+    const el = document.getElementById('sync-ui');
+    if (!el) return;
+    const code = getSyncCode();
+    if (code) {
+        el.innerHTML = `
+            <p style="color:var(--ok)">● Ativada — use o mesmo código no outro aparelho.</p>
+            <div class="field-lbl">Seu código de sincronização</div>
+            <div class="row" style="margin-bottom:8px">
+                <input type="text" id="sync-code-show" value="${esc(code)}" readonly onclick="this.select()">
+                <button class="save-btn" onclick="copySyncCode()">Copiar</button>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-s btn-sm" onclick="copySyncLink()">🔗 Copiar link</button>
+                <button class="btn btn-s btn-sm" onclick="syncTest()">🔍 Testar</button>
+                <button class="btn btn-d btn-sm" onclick="syncDisable()">Desligar</button>
+            </div>`;
+    } else {
+        el.innerHTML = `
+            <p>Tenha a MESMA agenda no PC e no celular. Cada pessoa tem o seu código — agendas separadas e privadas.</p>
+            <button class="btn btn-p" onclick="syncCreate()" style="margin-bottom:12px">✨ Ativar sincronização</button>
+            <div class="field-lbl">Já tem um código? Cole aqui</div>
+            <div class="row">
+                <input type="text" id="sync-code-in" placeholder="código do outro aparelho">
+                <button class="save-btn" onclick="syncJoin(document.getElementById('sync-code-in').value)">Entrar</button>
+            </div>`;
+    }
+}
+function copySyncCode() {
+    const c=getSyncCode(); if(!c) return;
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(c).then(()=>toast('Código copiado!'));
+    else { const i=document.getElementById('sync-code-show'); i?.select(); try{document.execCommand('copy');}catch{} toast('Código copiado!'); }
+}
+function copySyncLink() {
+    const c=getSyncCode(); if(!c) return;
+    const url=`${location.origin}${location.pathname}#sync=${encodeURIComponent(c)}`;
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(()=>toast('Link copiado! Abra no outro aparelho 🔗'));
+    else prompt('Copie o link e abra no outro aparelho:', url);
 }
 
 // ════════════════════════════════════
@@ -1611,6 +1791,10 @@ function toast(msg){
     startClock();
     startHeaderClock();
     acquireWakeLock();
+
+    // sincronização: puxa a versão mais nova da nuvem e fica de olho
+    if (getSyncCode()) syncPull(false);
+    startSync();
 
     // mostra a versão (pra confirmar se o app atualizou)
     const vEl=document.getElementById('app-version'); if(vEl) vEl.textContent='versão '+APP_VERSION;

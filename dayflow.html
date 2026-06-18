@@ -1082,8 +1082,7 @@ ua.addEventListener('drop', e=>{
 const GEMINI_MODELS = [
     'gemini-2.0-flash',
     'gemini-2.0-flash-lite',
-    'gemini-1.5-flash-8b',
-    'gemini-1.5-flash-latest',
+    'gemini-2.5-flash',
 ];
 
 const OCR_PROMPT = `Analise esta imagem de um planejamento diário (pode ser escrito à mão).
@@ -1162,8 +1161,9 @@ async function analyzeImage() {
 
     showLoad('Analisando imagem com IA...');
 
-    // 1. Tenta todos os modelos × todas as chaves
-    let lastGeminiErr = '';
+    // 1. Tenta cada chave. Modelos da mesma chave dividem a mesma cota,
+    //    então em erro de QUOTA pulamos direto pra próxima chave (não martela).
+    let lastGeminiErr = '', anyQuota = false;
     for (const key of keys) {
         for (const model of GEMINI_MODELS) {
             try {
@@ -1179,9 +1179,11 @@ async function analyzeImage() {
             } catch(err) {
                 lastGeminiErr = err.message;
                 console.warn(`[DayFlow] Gemini ${model}: ${err.message}`);
-                // erros que valem tentar outro modelo/chave ou cair pro OCR
-                const retryable = /quota|resource.?exhausted|not found|deprecated|unavailable|overloaded|500|503|429|403|failed to fetch|networkerror|load failed/i.test(err.message);
-                if(!retryable) { hideLoad(); toast('Erro Gemini: '+err.message); return; }
+                const quota     = /quota|resource.?exhausted|429/i.test(err.message);
+                const tryNext   = /not found|deprecated|unavailable|overloaded|500|503|403|failed to fetch|networkerror|load failed/i.test(err.message);
+                if (quota)   { anyQuota = true; break; }      // mesma cota → próxima CHAVE
+                if (tryNext) { continue; }                    // problema do modelo → próximo modelo
+                hideLoad(); toast('Erro Gemini: '+err.message); return;   // erro fatal (ex.: chave inválida)
             }
         }
     }
@@ -1199,8 +1201,12 @@ async function analyzeImage() {
     } catch(err) {
         hideLoad();
         console.warn(`[DayFlow] OCR.space: ${err.message}`);
-        const g = lastGeminiErr ? `Gemini: ${lastGeminiErr}` : '';
-        toast(`Falhou. ${g} · OCR: ${err.message}. Use "Testar chaves" nas ⚙️ ou digite manualmente.`);
+        if (anyQuota) {
+            toast(`Cota do Gemini esgotada. Aguarde ~1 min (limite por minuto) ou adicione outra chave de outra conta Google. OCR alternativo também falhou: ${err.message}`);
+        } else {
+            const g = lastGeminiErr ? `Gemini: ${lastGeminiErr} · ` : '';
+            toast(`Falhou. ${g}OCR: ${err.message}. Use "Testar chaves" nas ⚙️ ou digite manualmente.`);
+        }
     }
 }
 

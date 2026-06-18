@@ -489,7 +489,7 @@ let confFired = false;
 let warned5 = false, warned2 = false;
 let compact = false;
 let schedMeta = null, lastStatus = null, pendingWhen = 'today';
-const APP_VERSION = '1.8';
+const APP_VERSION = '1.9';
 
 // ════════════════════════════════════
 // STORAGE  (agenda persiste entre dias)
@@ -1098,54 +1098,56 @@ function loadFromHash() {
 // Cada pessoa tem um "código" próprio (= bucket no kvdb). Roda 100% no
 // navegador do usuário. Dados locais são sempre a fonte; a nuvem é cópia.
 // ════════════════════════════════════
-const SYNC_BASE = 'https://kvdb.io';
+// Backend = Firebase Realtime Database (REST). FB_URL é preenchido depois
+// que o usuário cria o projeto; até lá aceita uma URL colada nas configs.
+const FB_URL = '';
+const getFbUrl   = () => (FB_URL || localStorage.getItem('df_fburl') || '').replace(/\/+$/,'');
 const getSyncCode = () => localStorage.getItem('df_synccode') || '';
-const syncUrl = () => { const c=getSyncCode(); return c ? `${SYNC_BASE}/${encodeURIComponent(c)}/sched` : null; };
+const dataUrl = code => { const b=getFbUrl(); return (b && code) ? `${b}/dayflow/${encodeURIComponent(code)}.json` : null; };
 
-// cria um novo espaço de sync e devolve o código (o bucket)
+function genCode() {
+    const a = new Uint8Array(12);
+    (window.crypto||window.msCrypto).getRandomValues(a);
+    return Array.from(a, b=>('0'+b.toString(16)).slice(-2)).join('');   // 24 hex, impossível de adivinhar
+}
+function setFbUrl(u) {
+    u = (u||'').trim().replace(/\/+$/,'');
+    if (!/^https:\/\/.+/.test(u)) { toast('URL inválida (precisa começar com https://)'); return; }
+    localStorage.setItem('df_fburl', u);
+    renderSyncUI();
+    toast('Firebase conectado ✓');
+}
+
+// ativa a sincronização: gera um código próprio (Firebase cria o nó sozinho no 1º envio)
 async function syncCreate() {
+    if (!getFbUrl()) { toast('Conecte a URL do Firebase primeiro (logo acima).'); return; }
+    const code = genCode();
+    localStorage.setItem('df_synccode', code);
     showLoad('Ativando sincronização...');
-    // tenta variações de criação de bucket no kvdb (sem conta)
-    const attempts = [
-        { body: undefined, headers: {} },
-        { body: '{}', headers: {'Content-Type':'application/json'} },
-        { body: '', headers: {'Content-Type':'text/plain'} },
-    ];
-    let lastInfo = '';
-    for (const a of attempts) {
-        try {
-            const r = await fetch(SYNC_BASE + '/', { method:'POST', headers:a.headers, body:a.body });
-            const text = (await r.text()).trim();
-            if (!r.ok) { lastInfo = `HTTP ${r.status}: ${text.slice(0,120)}`; console.warn('[DayFlow] kvdb create', lastInfo); continue; }
-            if (!text || text.length<6 || /\s/.test(text)) { lastInfo = `resposta estranha: ${text.slice(0,120)}`; console.warn('[DayFlow] kvdb create', lastInfo); continue; }
-            localStorage.setItem('df_synccode', text);
-            await syncPush(true);
-            hideLoad();
-            renderSyncUI();
-            toast('Sincronização ativada! ✓');
-            return;
-        } catch(e) { lastInfo = e.message; console.warn('[DayFlow] kvdb create erro', e.message); }
-    }
+    const ok = schedMeta ? await syncPush(true) : await syncVerify();
     hideLoad();
-    localStorage.removeItem('df_synccode');
-    toast('Não consegui ativar a sync. Resposta do servidor → '+lastInfo);
+    if (ok) { renderSyncUI(); toast('Sincronização ativada! ✓'); }
+    else { localStorage.removeItem('df_synccode'); toast('Falhou — confira a URL e as regras do Firebase.'); }
+}
+
+async function syncVerify() {
+    const url = dataUrl(getSyncCode());
+    if (!url) return false;
+    try { const r = await fetch(url, {cache:'no-store'}); return r.ok; } catch { return false; }
 }
 
 // entra numa agenda existente pelo código
 async function syncJoin(code) {
     code = (code||'').trim();
     if (!code) { toast('Digite o código de sincronização'); return; }
+    if (!getFbUrl()) { toast('Conecte a URL do Firebase primeiro.'); nav('settings'); return; }
     showLoad('Conectando...');
     localStorage.setItem('df_synccode', code);
     const got = await syncPull(true);
     hideLoad();
     renderSyncUI();
     if (got) toast('Conectado! Agenda sincronizada ✓');
-    else {
-        // sem dados ainda nesse código → sobe a agenda local pra "semear"
-        await syncPush(false);
-        toast('Conectado. Este código ainda não tinha agenda — enviei a sua.');
-    }
+    else { await syncPush(false); toast('Conectado. Este código ainda não tinha agenda — enviei a sua.'); }
 }
 
 function syncDisable() {
@@ -1162,13 +1164,14 @@ function syncPushDebounced() {
 }
 
 async function syncPush(showErr) {
-    const url = syncUrl();
+    const url = dataUrl(getSyncCode());
     if (!url || !schedMeta) return false;
     try {
         const r = await fetch(url, { method:'PUT', body: JSON.stringify(schedMeta) });
-        if (!r.ok) throw new Error('HTTP '+r.status);
+        if (!r.ok) { const t = await r.text().catch(()=>''); throw new Error(`HTTP ${r.status} ${t.slice(0,100)}`); }
         return true;
     } catch(e) {
+        console.warn('[DayFlow] sync push', e.message);
         if (showErr) toast('Erro ao enviar pra nuvem: '+e.message);
         return false;
     }
@@ -1176,16 +1179,15 @@ async function syncPush(showErr) {
 
 let _pulling = false;
 async function syncPull(force) {
-    const url = syncUrl();
+    const url = dataUrl(getSyncCode());
     if (!url || _pulling) return false;
     _pulling = true;
     try {
         const r = await fetch(url, { cache:'no-store' });
-        if (r.status === 404) { _pulling=false; return false; }   // sem dados nesse código
         if (!r.ok) throw new Error('HTTP '+r.status);
         const txt = await r.text();
         _pulling = false;
-        if (!txt) return false;
+        if (!txt || txt === 'null') return false;   // Firebase devolve "null" quando o nó não existe
         const remote = JSON.parse(txt);
         if (!remote || !Array.isArray(remote.items)) return false;
         const localU  = schedMeta?.updatedAt || 0;
@@ -1200,7 +1202,7 @@ async function syncPull(force) {
             return true;
         }
         return false;
-    } catch(e) { _pulling=false; return false; }
+    } catch(e) { _pulling=false; console.warn('[DayFlow] sync pull', e.message); return false; }
 }
 
 // teste manual (o usuário roda no próprio navegador pra validar)
@@ -1210,7 +1212,7 @@ async function syncTest() {
     const up = await syncPush(true);
     const down = await syncPull(false);
     hideLoad();
-    toast(up ? '✓ Sincronização funcionando! (enviou e leu)' : 'Falha no teste — veja a conexão');
+    toast(up ? '✓ Sincronização funcionando! (enviou e leu)' : 'Falha no teste — confira URL/regras do Firebase');
 }
 
 let syncID = null;
@@ -1228,6 +1230,17 @@ document.addEventListener('visibilitychange', () => {
 function renderSyncUI() {
     const el = document.getElementById('sync-ui');
     if (!el) return;
+    // 1º precisa de um banco Firebase conectado
+    if (!getFbUrl()) {
+        el.innerHTML = `
+            <p>Sincronize PC e celular conectando um banco grátis do Firebase (uma vez só). Não sabe a URL? Peça as instruções aqui no chat.</p>
+            <div class="field-lbl">URL do Realtime Database</div>
+            <div class="row">
+                <input type="text" id="fb-url-in" placeholder="https://...firebasedatabase.app">
+                <button class="save-btn" onclick="setFbUrl(document.getElementById('fb-url-in').value)">Conectar</button>
+            </div>`;
+        return;
+    }
     const code = getSyncCode();
     if (code) {
         el.innerHTML = `
@@ -1241,7 +1254,8 @@ function renderSyncUI() {
                 <button class="btn btn-s btn-sm" onclick="copySyncLink()">🔗 Copiar link</button>
                 <button class="btn btn-s btn-sm" onclick="syncTest()">🔍 Testar</button>
                 <button class="btn btn-d btn-sm" onclick="syncDisable()">Desligar</button>
-            </div>`;
+            </div>
+            ${fbFooter()}`;
     } else {
         el.innerHTML = `
             <p>Tenha a MESMA agenda no PC e no celular. Cada pessoa tem o seu código — agendas separadas e privadas.</p>
@@ -1250,8 +1264,21 @@ function renderSyncUI() {
             <div class="row">
                 <input type="text" id="sync-code-in" placeholder="código do outro aparelho">
                 <button class="save-btn" onclick="syncJoin(document.getElementById('sync-code-in').value)">Entrar</button>
-            </div>`;
+            </div>
+            ${fbFooter()}`;
     }
+}
+// link discreto pra trocar o banco (só quando a URL foi colada localmente)
+function fbFooter() {
+    if (FB_URL || !localStorage.getItem('df_fburl')) return '';
+    return `<div style="margin-top:10px"><button class="btn btn-d btn-sm" onclick="clearFbUrl()">Trocar banco Firebase</button></div>`;
+}
+function clearFbUrl() {
+    if (!confirm('Desconectar o Firebase deste aparelho?')) return;
+    localStorage.removeItem('df_fburl');
+    localStorage.removeItem('df_synccode');
+    renderSyncUI();
+    toast('Banco desconectado');
 }
 function copySyncCode() {
     const c=getSyncCode(); if(!c) return;

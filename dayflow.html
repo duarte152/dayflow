@@ -89,6 +89,16 @@
         @keyframes cdp { 0%,100%{opacity:1} 50%{opacity:.5} }
         .cd-sub { font-size: 10px; color: var(--txt3); letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }
 
+        /* ── Anel Pomodoro ── */
+        .ring-wrap { position: relative; width: min(74vw, 300px); margin: 16px auto 8px; aspect-ratio: 1 / 1; }
+        .ring { width: 100%; height: 100%; transform: rotate(-90deg); display: block; }
+        .ring-track { fill: none; stroke: var(--bord); stroke-width: 12; }
+        .ring-prog { fill: none; stroke-width: 12; stroke-linecap: round; transition: stroke-dashoffset .95s linear, stroke .6s; }
+        .ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 0 12%; text-align: center; }
+        .ring-center .cd { font-size: clamp(40px, 15vw, 64px); }
+        #app.compact .ring-wrap { width: min(56vw, 210px); margin: 8px auto 4px; }
+        #app.compact .ring-center .cd { font-size: clamp(30px, 12vw, 46px); }
+
         /* ── Next card ── */
         .next-card { display: flex; align-items: center; gap: 12px; }
         .next-badge { background: var(--surf2); border-radius: 11px; padding: 9px 13px; font-size: 14px; font-weight: 700; color: var(--txt2); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -693,6 +703,13 @@ function urgClass(sec) {
     if (sec<=300) return 'warn5';
     return 'normal';
 }
+const RING_C = 2 * Math.PI * 108;   // circunferência do anel Pomodoro (raio 108)
+function ringCol(sec) {              // cor do anel: roxo → amarelo → laranja → vermelho
+    if (sec<=60)  return '#ef4444';
+    if (sec<=120) return '#f97316';
+    if (sec<=300) return '#f59e0b';
+    return '#6366f1';
+}
 
 // ════════════════════════════════════
 // TIMER RENDER
@@ -820,9 +837,17 @@ function renderTimer() {
             <div class="chip"><span class="live-dot"></span>Agora</div>
             <div class="act-name">${esc(b.cur.activity)}</div>
             <div class="act-sub">Início às ${b.cur.time} · ${fmtAgo(b.elapsed)}</div>
-            <div class="prog-bar"><div class="prog-fill" id="pf" style="width:${pct}%;background:${grd}"></div></div>
-            <div class="cd ${urgent?'urgent':''}" id="cd" style="color:${col}">${fmt(b.rem)}</div>
-            <div class="cd-sub">⏳ tempo restante nesta atividade · termina ${boundaryStr}</div>
+            <div class="ring-wrap">
+                <svg class="ring" viewBox="0 0 240 240" aria-hidden="true">
+                    <circle class="ring-track" cx="120" cy="120" r="108"></circle>
+                    <circle class="ring-prog" id="ring" cx="120" cy="120" r="108"
+                        style="stroke:${ringCol(b.rem)};stroke-dasharray:${RING_C.toFixed(1)};stroke-dashoffset:${(RING_C*b.prog).toFixed(1)}"></circle>
+                </svg>
+                <div class="ring-center">
+                    <div class="cd ${urgent?'urgent':''}" id="cd" style="color:${col}">${fmt(b.rem)}</div>
+                    <div class="cd-sub">termina ${boundaryStr}</div>
+                </div>
+            </div>
         </div>
         ${tailHtml}
         ${schedList(b)}`;
@@ -957,11 +982,11 @@ function tick() {
         return;
     }
     if (b.st==='active') {
-        const cd=document.getElementById('cd'), pf=document.getElementById('pf'), sa=document.getElementById('sa');
-        const col=urgCol(b.rem), grd=urgGrad(b.rem), uc=urgClass(b.rem);
+        const cd=document.getElementById('cd'), ring=document.getElementById('ring'), sa=document.getElementById('sa');
+        const col=urgCol(b.rem);
         const urgent=b.rem<=120;
         if(cd){ cd.textContent=fmt(b.rem); cd.style.color=col; cd.classList.toggle('urgent',urgent); }
-        if(pf){ pf.style.width=(b.prog*100).toFixed(1)+'%'; pf.style.background=grd; }
+        if(ring){ ring.style.strokeDashoffset=(RING_C*b.prog).toFixed(1); ring.style.stroke=ringCol(b.rem); }
         if(sa) sa.textContent=fmtAgo(b.elapsed);
         const sr=document.getElementById('sched-rem'); if(sr) sr.textContent='faltam '+fmtIn(b.rem);
         // Re-render when urgency state changes

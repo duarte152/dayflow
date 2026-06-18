@@ -7,6 +7,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="theme-color" content="#0a0a0f">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱</text></svg>">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="icon-192.png">
     <title>DayFlow</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -213,6 +215,11 @@
 
         .prev-foot { padding: 10px 16px 22px; display: flex; flex-direction: column; gap: 9px; flex-shrink: 0; border-top: 1px solid var(--bord); }
 
+        /* ── "Quando usar" segmented ── */
+        .when-row { display: flex; gap: 6px; }
+        .when-opt { flex: 1; background: var(--surf); border: 1px solid var(--bord); border-radius: 10px; padding: 10px; font-size: 13px; font-weight: 600; color: var(--txt2); cursor: pointer; transition: all .15s; }
+        .when-opt.active { background: var(--acc-dim); border-color: var(--acc); color: var(--acc); }
+
         /* ── Wake lock dot (subtle) ── */
         .wake-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--txt3); display: none; }
         .wake-dot.on { display: block; background: var(--ok); }
@@ -328,6 +335,12 @@
                     <button class="add-sub" onclick="submitAdd()">+</button>
                 </div>
             </div>
+            <div class="field-lbl" style="margin-bottom:0">Quando usar esta agenda?</div>
+            <div class="when-row" id="when-row">
+                <button class="when-opt active" data-when="today"    onclick="setWhen('today')">Hoje</button>
+                <button class="when-opt"        data-when="tomorrow" onclick="setWhen('tomorrow')">Amanhã</button>
+                <button class="when-opt"        data-when="daily"    onclick="setWhen('daily')">Todo dia</button>
+            </div>
             <div style="display:flex;gap:8px">
                 <button class="btn btn-s" onclick="saveAsTemplate()" style="flex:1">📌 Salvar template</button>
                 <button class="btn btn-p" onclick="savePreview()" style="flex:2">✓ Iniciar Timer</button>
@@ -434,28 +447,67 @@ let wakeLock = null;
 let confFired = false;
 let warned5 = false, warned2 = false;
 let compact = false;
+let schedMeta = null, lastStatus = null, pendingWhen = 'today';
 
 // ════════════════════════════════════
-// STORAGE
+// STORAGE  (agenda persiste entre dias)
 // ════════════════════════════════════
-const TODAY     = () => new Date().toISOString().split('T')[0];
-const YESTERDAY = () => { const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split('T')[0]; };
+// datas no fuso LOCAL (toISOString seria UTC e erraria à noite no Brasil)
+function dateStr(d=new Date()){ return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
+function addDays(n, d=new Date()){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
 
-function persist(items) {
+function saveSchedule(items, forDate) {
+    // arquiva a agenda anterior para "reutilizar"
+    const prev = localStorage.getItem('df_sched');
+    if (prev) { try { if (JSON.parse(prev).items?.length) localStorage.setItem('df_sched_prev', prev); } catch {} }
     schedule = items;
-    localStorage.setItem('df_sched', JSON.stringify({date:TODAY(), items}));
+    schedMeta = { items, createdAt: Date.now(), forDate };
+    localStorage.setItem('df_sched', JSON.stringify(schedMeta));
+}
+function touchSchedule() {
+    // re-salva a agenda atual após edição in-place (sem arquivar nem mudar forDate)
+    if (!schedMeta) return;
+    schedMeta.items = schedule;
+    localStorage.setItem('df_sched', JSON.stringify(schedMeta));
 }
 function loadStorage() {
     try {
-        const d = JSON.parse(localStorage.getItem('df_sched')||'{}');
-        schedule = (d.date===TODAY() && Array.isArray(d.items)) ? d.items : [];
-    } catch { schedule=[]; }
+        const d = JSON.parse(localStorage.getItem('df_sched')||'null');
+        if (d && Array.isArray(d.items) && d.items.length) {
+            schedule = d.items;
+            // normaliza formato antigo {date,items} → recorrente ('daily')
+            schedMeta = { items: d.items, createdAt: d.createdAt||Date.now(), forDate: d.forDate || 'daily' };
+            localStorage.setItem('df_sched', JSON.stringify(schedMeta));
+        } else { schedule=[]; schedMeta=null; }
+    } catch { schedule=[]; schedMeta=null; }
 }
 function getYesterday() {
-    try {
-        const d = JSON.parse(localStorage.getItem('df_sched')||'{}');
-        return (d.date===YESTERDAY() && Array.isArray(d.items)) ? d.items : null;
-    } catch { return null; }
+    try { const d=JSON.parse(localStorage.getItem('df_sched_prev')||'null'); return d?.items?.length ? d.items : null; }
+    catch { return null; }
+}
+
+// status da agenda salva em relação ao dia de hoje
+function scheduleStatus() {
+    if (!schedule.length) return 'none';
+    const fd = schedMeta?.forDate || 'daily';
+    if (fd==='daily') return 'active';          // recorrente: roda todo dia
+    const today = dateStr();
+    if (fd===today) return 'active';            // é hoje
+    return fd>today ? 'future' : 'stale';       // futura (amanhã) ou vencida
+}
+function firstDateTime(forDate, time) {
+    const [Y,M,D] = forDate.split('-').map(Number);
+    const [h,m]   = time.split(':').map(Number);
+    return new Date(Y, M-1, D, h, m, 0, 0);
+}
+function whenLabel(forDate) {
+    if (forDate==='daily') return 'todo dia';
+    const today=dateStr(), tom=dateStr(addDays(1)), yes=dateStr(addDays(-1));
+    if (forDate===tom)   return 'amanhã';
+    if (forDate===today) return 'hoje';
+    if (forDate===yes)   return 'ontem';
+    const [Y,M,D]=forDate.split('-').map(Number);
+    return new Date(Y,M-1,D).toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'});
 }
 // migra chave antiga (df_gemini) para df_gemini1
 (()=>{ const old=localStorage.getItem('df_gemini'); if(old&&!localStorage.getItem('df_gemini1')){ localStorage.setItem('df_gemini1',old); } })();
@@ -513,7 +565,8 @@ function block() {
     const tot = (toMin(next.time)-toMin(cur.time))*60;
     const rem = Math.max(0,(toMin(next.time)-now)*60);
     const elapsed = (now - toMin(cur.time))*60;
-    return {st:'active', cur, next, idx, rem, tot, prog:Math.min(1,1-rem/tot), elapsed};
+    const prog = tot>0 ? Math.min(1,1-rem/tot) : 1;
+    return {st:'active', cur, next, idx, rem, tot, prog, elapsed};
 }
 
 function dayProgress() {
@@ -554,7 +607,8 @@ function resetSetup() {
     imgB64=null; imgMime=null;
     document.getElementById('img-prev').classList.remove('on');
     document.getElementById('analyze-wrap').style.display='none';
-    document.getElementById('file-input').value='';
+    const fc=document.getElementById('file-camera'), fg=document.getElementById('file-gallery');
+    if(fc) fc.value=''; if(fg) fg.value='';
     document.getElementById('manual-input').value=schedule.map(s=>`${s.time} - ${s.activity}`).join('\n');
     document.getElementById('yesterday-btn').style.display=getYesterday()?'block':'none';
     renderTemplates();
@@ -591,16 +645,16 @@ function urgClass(sec) {
 // TIMER RENDER
 // ════════════════════════════════════
 function renderTimer() {
-    const b = block();
     const body = document.getElementById('timer-body');
     const dbf  = document.getElementById('day-bar-fill');
     const si   = document.getElementById('share-ibtn');
     confFired = false;
-
-    dbf.style.width = (dayProgress()*100).toFixed(1)+'%';
+    const status = scheduleStatus();
+    lastStatus = status;
     si.style.display = schedule.length ? 'flex' : 'none';
 
-    if (b.st==='empty') {
+    if (status==='none') {
+        dbf.style.width='0%';
         body.innerHTML=`
             <div class="state-c">
                 <div class="state-emoji">📋</div>
@@ -611,6 +665,40 @@ function renderTimer() {
             </div>`;
         return;
     }
+
+    if (status==='future') {
+        dbf.style.width='0%';
+        const first=schedule[0];
+        const sec=Math.max(0,(firstDateTime(schedMeta.forDate, first.time)-Date.now())/1000);
+        body.innerHTML=`
+            <div class="state-c fade-up">
+                <div class="state-emoji">🌙</div>
+                <div class="state-title">Agenda pronta para ${whenLabel(schedMeta.forDate)}</div>
+                <div class="state-sub">Primeira atividade às <strong style="color:var(--txt)">${first.time}</strong> · ${esc(first.activity)}</div>
+                <div class="big-cd" id="bc">${fmt(sec)}</div>
+                <div class="state-sub" style="margin-top:6px">o timer começa sozinho na hora certa ✨</div>
+            </div>
+            ${schedList({idx:-1}, false)}`;
+        return;
+    }
+
+    if (status==='stale') {
+        dbf.style.width='0%';
+        body.innerHTML=`
+            <div class="state-c fade-up">
+                <div class="state-emoji">♻️</div>
+                <div class="state-title">Reutilizar agenda?</div>
+                <div class="state-sub">Esta agenda foi montada para <strong style="color:var(--txt)">${whenLabel(schedMeta.forDate)}</strong>. Quer usá-la hoje?</div>
+                <button class="btn btn-p" onclick="reuseToday()" style="max-width:210px;margin-top:8px">♻️ Usar hoje</button>
+                <button class="btn btn-s" onclick="nav('setup')" style="max-width:210px;margin-top:4px">+ Nova agenda</button>
+            </div>
+            ${schedList({idx:-1}, false)}`;
+        return;
+    }
+
+    // ── agenda ativa hoje ──
+    const b = block();
+    dbf.style.width = (dayProgress()*100).toFixed(1)+'%';
 
     if (b.st==='before') {
         body.innerHTML=`
@@ -681,14 +769,14 @@ function renderTimer() {
         ${schedList(b)}`;
 }
 
-function schedList(b) {
+function schedList(b, markPast=true) {
     if (!schedule.length) return '';
     const now = nowMin();
     const items = schedule.map((s,i)=>{
         const next = schedule[i+1];
         const dur = next ? durLabel(s.time, next.time) : '';
         const cur  = b.idx===i;
-        const past = !cur && now>toMin(s.time);
+        const past = markPast && !cur && now>toMin(s.time);
         return `<div class="sched-item ${cur?'cur':''} ${past?'past':''}">
             <div class="sched-time">${s.time}</div>
             <div class="sched-dot"></div>
@@ -712,6 +800,16 @@ function togSched(hdr) {
 // CLOCK TICK
 // ════════════════════════════════════
 function tick() {
+    // virada de dia / agenda futura ou vencida → re-render quando o status muda
+    const status = scheduleStatus();
+    if (status !== lastStatus) { renderTimer(); return; }  // renderTimer atualiza lastStatus
+    if (status === 'future') {
+        const el=document.getElementById('bc');
+        if (el) { const f=schedule[0]; el.textContent=fmt(Math.max(0,(firstDateTime(schedMeta.forDate,f.time)-Date.now())/1000)); }
+        return;
+    }
+    if (status !== 'active') return;   // 'none' ou 'stale': tela estática
+
     const b = block();
 
     // Full re-render if block changed
@@ -723,10 +821,10 @@ function tick() {
         return;
     }
 
-    // Warning sounds
+    // Warning sounds — latch simples (robusto a ticks perdidos em segundo plano)
     if (b.st==='active') {
-        if (!warned5 && b.rem<=300 && b.rem>290) { warned5=true; playPing(1); doVibrate([100]); }
-        if (!warned2 && b.rem<=120 && b.rem>110) { warned2=true; playPing(2); doVibrate([100,50,100]); }
+        if (!warned5 && b.rem<=300) { warned5=true; playPing(1); doVibrate([100]); }
+        if (!warned2 && b.rem<=120) { warned2=true; playPing(2); doVibrate([100,50,100]); }
     }
 
     // Update day progress bar
@@ -755,7 +853,7 @@ function completeNow(curIdx) {
     const now = new Date();
     const nowStr = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
     schedule[nextIdx] = {...schedule[nextIdx], time: nowStr};
-    persist(schedule);
+    touchSchedule();
     lastIdx = -2;
     playPing(1);
     doVibrate([80, 40, 80]);
@@ -771,8 +869,9 @@ function startClock() {
 function startHeaderClock() {
     function updateClock() {
         const n=new Date();
-        const s=`${pad2(n.getHours())}:${pad2(n.getMinutes())}`;
-        document.getElementById('hdr-clock').textContent=s;
+        document.getElementById('hdr-clock').textContent=`${pad2(n.getHours())}:${pad2(n.getMinutes())}`;
+        document.getElementById('hdr-date').textContent=
+            n.toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'});
     }
     updateClock();
     if (clockID) clearInterval(clockID);
@@ -1054,8 +1153,10 @@ function renderTemplates() {
 // ════════════════════════════════════
 function showPreview(items) {
     pending=items.map(i=>({...i}));
+    pendingWhen='today';
     renderPreview();
     nav('preview');
+    setWhen('today');
 }
 function renderPreview() {
     document.getElementById('prev-count').textContent=`${pending.length} itens`;
@@ -1086,9 +1187,25 @@ function submitAdd(){
 }
 function savePreview(){
     if(!pending.length){ toast('Agenda vazia'); return; }
-    persist(pending);
-    lastIdx=-2; warned5=false; warned2=false; confFired=false;
-    nav('timer'); toast('Agenda salva! ✓');
+    const forDate = pendingWhen==='daily'    ? 'daily'
+                  : pendingWhen==='tomorrow' ? dateStr(addDays(1))
+                  :                            dateStr();
+    saveSchedule(pending.map(i=>({...i})), forDate);
+    lastIdx=-2; lastStatus=null; warned5=false; warned2=false; confFired=false;
+    nav('timer');
+    toast(forDate==='daily'        ? 'Agenda diária ativada! ✓'
+        : pendingWhen==='tomorrow' ? 'Pronto! O timer começa amanhã ✓'
+        :                            'Timer iniciado! ✓');
+}
+function reuseToday(){
+    saveSchedule(schedule.map(i=>({...i})), dateStr());
+    lastIdx=-2; lastStatus=null; warned5=false; warned2=false; confFired=false;
+    renderTimer();
+    toast('Agenda reativada para hoje! ✓');
+}
+function setWhen(w){
+    pendingWhen=w;
+    document.querySelectorAll('#when-row .when-opt').forEach(b=>b.classList.toggle('active', b.dataset.when===w));
 }
 
 // ════════════════════════════════════
@@ -1104,9 +1221,9 @@ function saveKeys(){
     toast(`${saved} chave${saved>1?'s':''} salva${saved>1?'s':''}! ✓`);
 }
 function clearAll(){
-    if(!confirm('Limpar a agenda de hoje?')) return;
-    schedule=[]; localStorage.removeItem('df_sched');
-    lastIdx=-2; confFired=false;
+    if(!confirm('Limpar a agenda atual?')) return;
+    schedule=[]; schedMeta=null; localStorage.removeItem('df_sched');
+    lastIdx=-2; lastStatus=null; confFired=false;
     nav('timer'); toast('Agenda apagada');
 }
 async function reqNotif(){
@@ -1221,6 +1338,9 @@ function toast(msg){
     startClock();
     startHeaderClock();
     acquireWakeLock();
+
+    // PWA: offline + instalável
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();
 </script>
 </body>

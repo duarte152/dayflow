@@ -57,7 +57,7 @@
 
         /* ── Cards ── */
         .card { background: var(--surf); border: 1px solid var(--bord); border-radius: 20px; padding: 20px; }
-        .card-hero { position: relative; overflow: hidden; transition: border-color .4s; }
+        .card-hero { position: relative; transition: border-color .4s; }
         .card-hero::before { content:''; position:absolute; top:0;left:0;right:0; height:3px; border-radius:20px 20px 0 0; transition: background .6s; }
         .card-hero.normal::before  { background: linear-gradient(90deg,#6366f1,#8b5cf6); }
         .card-hero.warn5::before   { background: linear-gradient(90deg,#f59e0b,#fbbf24); }
@@ -447,6 +447,7 @@
                 4. O timer acompanha seu dia sozinho!<br><br>
                 <strong>Compartilhamento:</strong> o botão 🔗 gera um link com sua agenda para abrir em qualquer dispositivo.
             </div>
+            <div id="app-version" style="text-align:center;font-size:11px;color:var(--txt3);padding:4px 0 8px"></div>
         </div>
     </div>
 
@@ -484,6 +485,7 @@ let confFired = false;
 let warned5 = false, warned2 = false;
 let compact = false;
 let schedMeta = null, lastStatus = null, pendingWhen = 'today';
+const APP_VERSION = '1.6';
 
 // ════════════════════════════════════
 // STORAGE  (agenda persiste entre dias)
@@ -1610,8 +1612,17 @@ function toast(msg){
     startHeaderClock();
     acquireWakeLock();
 
-    // PWA: offline + instalável
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+    // mostra a versão (pra confirmar se o app atualizou)
+    const vEl=document.getElementById('app-version'); if(vEl) vEl.textContent='versão '+APP_VERSION;
+
+    // PWA: offline + instalável + auto-atualização
+    if ('serviceWorker' in navigator) {
+        let refreshing=false;
+        navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+            if(!refreshing){ refreshing=true; location.reload(); }   // nova versão assumiu → recarrega 1x
+        });
+        navigator.serviceWorker.register('sw.js').then(reg=>{ try{ reg.update(); }catch{} }).catch(()=>{});
+    }
 })();
 </script>
 </body>

@@ -111,6 +111,7 @@
         .sched-item.past { opacity: .3; }
         .sched-act { font-size: 13px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .sched-dur { font-size: 11px; color: var(--txt3); flex-shrink: 0; }
+        .sched-rem { color: var(--acc); font-weight: 700; font-variant-numeric: tabular-nums; }
 
         /* ── State pages ── */
         .state-c { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px 24px; gap: 10px; }
@@ -821,7 +822,7 @@ function renderTimer() {
             <div class="act-sub">Início às ${b.cur.time} · ${fmtAgo(b.elapsed)}</div>
             <div class="prog-bar"><div class="prog-fill" id="pf" style="width:${pct}%;background:${grd}"></div></div>
             <div class="cd ${urgent?'urgent':''}" id="cd" style="color:${col}">${fmt(b.rem)}</div>
-            <div class="cd-sub">restando até ${boundaryStr}</div>
+            <div class="cd-sub">⏳ tempo restante nesta atividade · termina ${boundaryStr}</div>
         </div>
         ${tailHtml}
         ${schedList(b)}`;
@@ -843,7 +844,9 @@ function schedList(b, markPast=true) {
             <div class="sched-time">${s.time}</div>
             <div class="sched-dot"></div>
             <div class="sched-act">${end?'— FIM —':esc(s.activity)}</div>
-            ${dur?`<div class="sched-dur">${dur}</div>`:''}
+            ${cur && b.rem!=null
+                ? `<div class="sched-dur sched-rem" id="sched-rem">faltam ${fmtIn(b.rem)}</div>`
+                : dur?`<div class="sched-dur">${dur}</div>`:''}
             ${check}
         </div>`;
     }).join('');
@@ -960,6 +963,7 @@ function tick() {
         if(cd){ cd.textContent=fmt(b.rem); cd.style.color=col; cd.classList.toggle('urgent',urgent); }
         if(pf){ pf.style.width=(b.prog*100).toFixed(1)+'%'; pf.style.background=grd; }
         if(sa) sa.textContent=fmtAgo(b.elapsed);
+        const sr=document.getElementById('sched-rem'); if(sr) sr.textContent='faltam '+fmtIn(b.rem);
         // Re-render when urgency state changes
         if ((b.rem<=300&&b.rem>298)||(b.rem<=120&&b.rem>118)) renderTimer();
     }

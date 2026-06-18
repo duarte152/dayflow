@@ -489,7 +489,7 @@ let confFired = false;
 let warned5 = false, warned2 = false;
 let compact = false;
 let schedMeta = null, lastStatus = null, pendingWhen = 'today';
-const APP_VERSION = '1.7';
+const APP_VERSION = '1.8';
 
 // ════════════════════════════════════
 // STORAGE  (agenda persiste entre dias)
@@ -1105,21 +1105,30 @@ const syncUrl = () => { const c=getSyncCode(); return c ? `${SYNC_BASE}/${encode
 // cria um novo espaço de sync e devolve o código (o bucket)
 async function syncCreate() {
     showLoad('Ativando sincronização...');
-    try {
-        const r = await fetch(SYNC_BASE, { method:'POST' });
-        if (!r.ok) throw new Error('HTTP '+r.status);
-        const bucket = (await r.text()).trim();
-        if (!bucket || bucket.length<6) throw new Error('resposta inválida do servidor');
-        localStorage.setItem('df_synccode', bucket);
-        await syncPush(true);              // sobe a agenda atual (se houver)
-        hideLoad();
-        renderSyncUI();
-        toast('Sincronização ativada! ✓');
-    } catch(e) {
-        hideLoad();
-        localStorage.removeItem('df_synccode');
-        toast('Não consegui ativar a sync: '+e.message);
+    // tenta variações de criação de bucket no kvdb (sem conta)
+    const attempts = [
+        { body: undefined, headers: {} },
+        { body: '{}', headers: {'Content-Type':'application/json'} },
+        { body: '', headers: {'Content-Type':'text/plain'} },
+    ];
+    let lastInfo = '';
+    for (const a of attempts) {
+        try {
+            const r = await fetch(SYNC_BASE + '/', { method:'POST', headers:a.headers, body:a.body });
+            const text = (await r.text()).trim();
+            if (!r.ok) { lastInfo = `HTTP ${r.status}: ${text.slice(0,120)}`; console.warn('[DayFlow] kvdb create', lastInfo); continue; }
+            if (!text || text.length<6 || /\s/.test(text)) { lastInfo = `resposta estranha: ${text.slice(0,120)}`; console.warn('[DayFlow] kvdb create', lastInfo); continue; }
+            localStorage.setItem('df_synccode', text);
+            await syncPush(true);
+            hideLoad();
+            renderSyncUI();
+            toast('Sincronização ativada! ✓');
+            return;
+        } catch(e) { lastInfo = e.message; console.warn('[DayFlow] kvdb create erro', e.message); }
     }
+    hideLoad();
+    localStorage.removeItem('df_synccode');
+    toast('Não consegui ativar a sync. Resposta do servidor → '+lastInfo);
 }
 
 // entra numa agenda existente pelo código
